@@ -1,0 +1,4 @@
+{
+  "name": "qwen3:8b",
+  "prompt": "this is a test prompt. Simply reply with hello LMCP"
+}

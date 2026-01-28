@@ -1,0 +1,80 @@
+# LMCP Registry Configuration
+# Copy this file to registry.yaml and customize for your setup
+
+lmcp:
+  host: 127.0.0.1
+  port: 7345
+  audit_log: logs/audit.log
+  loopback_only: true
+
+# Define clients that can connect to LMCP
+# Each client needs a unique token and list of allowed servers
+clients:
+  vscode:
+    token: "your-secure-token-here"  # Generate a secure random token
+    allow_servers:
+      - ollama-mcp
+      - comfyui-mcp
+
+  claude-desktop:
+    token: "another-secure-token"
+    allow_servers:
+      - ollama-mcp
+
+# Define MCP servers that LMCP can proxy to
+servers:
+  # Example: Ollama MCP server (stdio)
+  ollama-mcp:
+    transport: stdio
+    command: npx
+    args: ["-y", "ollama-mcp-server"]
+    env:
+      OLLAMA_HOST: "http://127.0.0.1:11434"
+    tool_policy:
+      mode: allow_all
+      allow_tools: []
+      deny_tools: []
+
+  # Example: HTTP-based MCP server
+  comfyui-mcp:
+    transport: http
+    url: "http://127.0.0.1:9000/mcp"
+    headers: {}
+    tool_policy:
+      mode: allow_all
+      allow_tools: []
+      deny_tools: []
+
+  # Example: Docker-based MCP server (stdio via docker run)
+  playwright-mcp:
+    transport: stdio
+    command: docker
+    args: ["run", "-i", "--rm", "mcp/playwright"]
+    env: {}
+    tool_policy:
+      mode: allow_all
+      allow_tools: []
+      deny_tools: []
+
+  # Example: Restricted server (no tools allowed)
+  restricted-server:
+    transport: http
+    url: "https://example.com/mcp"
+    headers: {}
+    tool_policy:
+      mode: deny_all
+      allow_tools: []
+      deny_tools: []
+
+  # Example: Server with specific tools allowed
+  limited-server:
+    transport: stdio
+    command: npx
+    args: ["-y", "some-mcp-server"]
+    env: {}
+    tool_policy:
+      mode: allow_list
+      allow_tools:
+        - safe_read_operation
+        - list_items
+      deny_tools: []

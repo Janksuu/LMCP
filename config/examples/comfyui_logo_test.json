@@ -1,0 +1,9 @@
+{
+  "prompt": "Clean minimal logo on white background: a central hub node with 4–6 smooth curved lines connecting in and out, representing unified MCP connections. Simple geometric shapes, balanced symmetry, modern tech aesthetic, calm and precise. No text, no gradients, no clutter.",
+  "negative_prompt": "text, watermark, clutter, messy, noisy, low quality",
+  "model": "sd_xl_turbo_1.0_fp16.safetensors",
+  "width": 512,
+  "height": 512,
+  "steps": 1,
+  "cfg": 1
+}
