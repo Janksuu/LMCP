@@ -1,8 +1,6 @@
 # LMCP
 
-**Local MCP Control Plane** — A unified access layer for Model Context Protocol servers.
-
-LMCP solves MCP fragmentation by providing a single local endpoint that any MCP-capable client can connect to, with centralized registry, authentication, and policy enforcement.
+**Local MCP Control Plane** — A governance layer for Model Context Protocol servers.
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
@@ -10,7 +8,7 @@ LMCP solves MCP fragmentation by providing a single local endpoint that any MCP-
 └──────┬──────┘     └──────┬──────┘     └──────┬──────┘
        │                   │                   │
        └───────────────────┼───────────────────┘
-                           │
+                           │  token + client_id
                            ▼
                     ┌─────────────┐
                     │    LMCP     │
@@ -19,7 +17,7 @@ LMCP solves MCP fragmentation by providing a single local endpoint that any MCP-
                     │  Auth/Policy│
                     │  Audit Log  │
                     └──────┬──────┘
-                           │
+                           │  authorized only
        ┌───────────────────┼───────────────────┐
        │                   │                   │
        ▼                   ▼                   ▼
@@ -33,24 +31,34 @@ LMCP solves MCP fragmentation by providing a single local endpoint that any MCP-
 
 ## The Problem
 
-MCP servers get locked into whichever client configures them:
+Running multiple AI clients against multiple MCP tool servers creates a fragmentation problem:
 
-- VS Code workspace MCP is invisible to Docker gateway
-- Docker MCP gateway is invisible to Claude Desktop
-- Every client has its own config format and discovery mechanism
+- VS Code, Codex, and Claude Desktop each have their own config format and discovery mechanism
+- Every new client means re-registering every server in a different config file
+- No shared policy: granting a client access in one place doesn't affect anything else
+- No audit trail: there is no record of which client called which tool, or whether it was allowed
 
-You end up with duplicated configs, invisible servers, and ad-hoc wiring.
+The natural response is to wire each client directly to each server. This works until a token changes, a server moves, or a client accumulates access it shouldn't have.
 
-## The Solution
+## What LMCP Does
 
-LMCP provides:
+LMCP provides a single local endpoint that all MCP clients connect to. The registry defines what servers exist. Per-client allowlists define what each client is permitted to reach. Every access decision — allowed or denied — is written to an append-only audit log.
 
-- **Single endpoint** — All clients talk to `127.0.0.1:7345/mcp`
-- **Unified registry** — Configure servers once, access from anywhere
-- **Transport normalization** — stdio and HTTP servers look identical to clients
-- **Per-client authentication** — Token-based access control
-- **Policy enforcement** — Server allowlists and tool filtering
-- **Audit logging** — Full trail of who accessed what
+This is not a proxy that routes traffic. It is a governance layer that decides whether traffic should be routed, and records every decision it makes.
+
+---
+
+## Design Invariants
+
+These are the properties LMCP will not trade away:
+
+- **Loopback binding by default** — LMCP binds to `127.0.0.1`. Remote access requires explicit configuration and a deliberate opt-in.
+- **Explicit registration** — Nothing is discovered automatically. If a server is not in the registry, LMCP does not know it exists.
+- **Per-client allowlists** — Clients only reach servers they are explicitly granted. A new client has no access until access is granted.
+- **Append-only audit log** — Every authentication and authorization decision is written once and never modified or deleted.
+- **Policy as access, not intent** — LMCP decides *whether* a tool call happens. It never decides *why*, or what to do next.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the rationale behind each of these decisions.
 
 ---
 
@@ -59,34 +67,62 @@ LMCP provides:
 **1. Install dependencies**
 
 ```bash
-cd lmcp_v1
+cd lmcp_v2
 pip install -r requirements.txt
 ```
 
 **2. Configure your registry**
 
-Copy the example and customize:
+Copy the example and edit:
 
 ```bash
 cp config/registry.example.yaml config/registry.yaml
 ```
 
-Edit `config/registry.yaml` — add your servers and set client tokens:
+Add your servers and set client tokens:
 
 ```yaml
 clients:
   vscode:
     token: "your-secure-token-here"
     allow_servers: ["ollama-mcp", "comfyui-mcp"]
+
+servers:
+  ollama-mcp:
+    transport: stdio
+    command: npx
+    args: ["-y", "ollama-mcp-server"]
+    env:
+      OLLAMA_HOST: "http://127.0.0.1:11434"
+    timeouts:
+      initialize_s: 30
+      tools_list_s: 30
+      tools_call_s: 300
+      retry_on_timeout: 1
+      retry_backoff_s: 1.5
+    tool_policy:
+      mode: allow_all
 ```
 
-**3. Start LMCP**
+**3. Validate your configuration**
+
+```bash
+python -m lmcp.daemon --registry config/registry.yaml --validate-registry
+```
+
+**4. Start LMCP**
 
 ```bash
 python -m lmcp.daemon --registry config/registry.yaml --serve-http
 ```
 
-**4. Connect your client**
+**5. Verify it is running**
+
+```bash
+python -m lmcp.daemon --registry config/registry.yaml --status
+```
+
+**6. Connect your client**
 
 Point your MCP client at:
 ```
@@ -99,7 +135,7 @@ http://127.0.0.1:7345/mcp?client_id=vscode&token=your-secure-token-here
 
 ### Registry Format
 
-LMCP uses a single YAML registry file:
+LMCP uses a single YAML registry file. All configuration lives here: the daemon settings, every registered client, and every registered server.
 
 ```yaml
 lmcp:
@@ -124,22 +160,78 @@ servers:
       mode: allow_all
 ```
 
-### Server Types
+See `config/registry.example.yaml` for a full example with multiple server types.
 
-| Transport | Config | Use Case |
-|-----------|--------|----------|
-| `stdio` | `command`, `args`, `env` | Local CLI-based MCP servers |
-| `http` | `url`, `headers` | HTTP/SSE MCP servers |
+### Server Transports
+
+| Transport | Config Fields | Use Case |
+|-----------|--------------|----------|
+| `stdio` | `command`, `args`, `env` | Local MCP servers launched as child processes |
+| `http` | `url`, `headers` | HTTP/SSE MCP servers already running |
+
+### Timeouts and Retries
+
+Each server can override LMCP timeout behavior:
+
+```yaml
+servers:
+  comfyui-mcp:
+    transport: http
+    url: "http://127.0.0.1:9000/mcp"
+    timeouts:
+      tools_list_s: 20
+      tools_call_s: 600
+      retry_on_timeout: 1
+      retry_backoff_s: 2
+```
+
+| Key | Meaning | Default (`stdio`) | Default (`http`) |
+|-----|---------|-------------------|------------------|
+| `initialize_s` | Timeout for MCP `initialize` | `90` | not used |
+| `tools_list_s` | Timeout for `tools/list` | `90` | `60` |
+| `tools_call_s` | Timeout for `tools/call` | `180` | `300` |
+| `retry_on_timeout` | Retries after timeout | `0` | `0` |
+| `retry_backoff_s` | Wait between retries | `1` | `1` |
+
+Retry behavior is intentionally conservative:
+- Retries apply to `initialize` and `tools/list`.
+- `tools/call` is **not** auto-retried to avoid duplicate side effects.
 
 ### Tool Policies
 
-Control which tools are accessible per server:
+Per-server control over which tools clients can call:
 
 | Mode | Behavior |
 |------|----------|
-| `allow_all` | All tools accessible (default) |
-| `deny_all` | No tools accessible |
-| `allow_list` | Only specified tools accessible |
+| `allow_all` | All tools accessible |
+| `deny_all` | No tools accessible (server registered but gated) |
+| `allow_list` | Only tools listed in `tools` are accessible |
+
+---
+
+## Operation
+
+### Status and Inspection
+
+```bash
+# Human-readable status summary
+python -m lmcp.daemon --registry config/registry.yaml --status
+
+# Machine-readable status (JSON)
+python -m lmcp.daemon --registry config/registry.yaml --status-json
+```
+
+Status output includes registered clients and their allowed servers, registered servers and transport type, per-server timeout settings, and the most recent audit log entries.
+
+### Web Status Panel (Optional)
+
+When the daemon is running, a read-only status panel is available at:
+
+```
+http://127.0.0.1:7345/ui
+```
+
+The panel shows three views: registered servers (name, transport, status), registered clients (ID, allowed servers), and recent audit entries (timestamp, client, server, action, result). It is read-only — no actions can be taken from the UI.
 
 ---
 
@@ -150,6 +242,8 @@ Control which tools are accessible per server:
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check |
+| `/status` | GET | Daemon status (JSON) |
+| `/ui` | GET | Read-only status panel |
 | `/describe` | GET | Daemon configuration |
 | `/auth-check` | GET | Verify client credentials |
 | `/server-check` | GET | Verify server access |
@@ -157,7 +251,13 @@ Control which tools are accessible per server:
 
 ### MCP Protocol Support
 
-The `/mcp` endpoint supports standard MCP methods:
+The `/mcp` endpoint accepts standard MCP JSON-RPC. Authentication is via query parameters or headers.
+
+**Query parameters:** `?client_id=vscode&token=your-token`
+
+**Headers:** `X-Client-Id: vscode` and `X-Lmcp-Token: your-token`
+
+Supported methods:
 
 - `initialize` — Protocol handshake
 - `tools/list` — Aggregated tool discovery across allowed servers
@@ -181,11 +281,18 @@ curl -X POST http://127.0.0.1:7345/mcp \
 
 ---
 
-## CLI Commands
-
-LMCP includes testing and validation commands:
+## Full CLI Reference
 
 ```bash
+# Start HTTP server
+python -m lmcp.daemon --registry config/registry.yaml --serve-http
+
+# Human-readable status summary
+python -m lmcp.daemon --registry config/registry.yaml --status
+
+# Machine-readable status (JSON)
+python -m lmcp.daemon --registry config/registry.yaml --status-json
+
 # Validate registry configuration
 python -m lmcp.daemon --registry config/registry.yaml --validate-registry
 
@@ -200,9 +307,6 @@ python -m lmcp.daemon --registry config/registry.yaml --stdio-test ollama-mcp
 
 # Test HTTP server connection
 python -m lmcp.daemon --registry config/registry.yaml --http-test comfyui-mcp
-
-# Start HTTP server
-python -m lmcp.daemon --registry config/registry.yaml --serve-http
 ```
 
 ---
@@ -223,56 +327,57 @@ Add LMCP as an MCP server in your VS Code workspace:
 }
 ```
 
-Then in VS Code Agent mode, you can access all servers configured in your LMCP registry.
+In VS Code Agent mode, all servers in your LMCP registry become available through the single LMCP endpoint. Access is governed by the `allow_servers` list for the `vscode` client.
 
 ---
 
 ## Security
 
-LMCP is designed with security defaults:
+LMCP is designed so the secure behavior is the default:
 
-- **Loopback only** — Binds to `127.0.0.1` by default
-- **Token authentication** — Every client requires a valid token
-- **Server allowlists** — Clients can only access explicitly permitted servers
-- **Tool policies** — Fine-grained control over which tools are accessible
-- **Audit logging** — All authentication and authorization decisions are logged
+- **Loopback only** — Binds to `127.0.0.1` unless explicitly configured otherwise
+- **Token authentication** — Every client requires a valid token; no anonymous access
+- **Server allowlists** — Clients access only servers they are explicitly granted
+- **Tool policies** — Per-server control over which tools are reachable
+- **Audit logging** — Every authentication and authorization decision is recorded
 
 ### What LMCP Does NOT Do
 
 - No remote network access by default
-- No automatic server discovery
+- No automatic server discovery or registration
 - No agent orchestration or planning
-- No persistent memory or state
+- No persistent memory or cross-request state
 - No intent inference
 
-LMCP is access control infrastructure, not an AI system.
+LMCP is access control infrastructure. It is not an AI system.
 
 ---
 
 ## Requirements
 
 - Python 3.10+
-- PyYAML
-- jsonschema
+- `pyyaml >= 6.0`
+- `jsonschema >= 4.20.0`
 
-For MCP servers that use npx:
+For MCP servers that use `npx`:
 - Node.js 20+
 
-See [docs/requirements.md](docs/requirements.md) for detailed setup.
+See [docs/requirements.md](docs/requirements.md) for full setup details.
 
 ---
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) — System design and components
-- [Requirements](docs/requirements.md) — Dependencies and setup
-- [Testing](docs/testing.md) — Validation procedures
+- [ARCHITECTURE.md](ARCHITECTURE.md) — Design decisions, invariants, and threat model
+- [CHANGELOG.md](CHANGELOG.md) — Version history
+- [docs/requirements.md](docs/requirements.md) — Dependencies and setup
+- [docs/testing.md](docs/testing.md) — Validation procedures
 
 ---
 
 ## About
 
-This project is developed by **Quincy Perry** and is part of the **DigitalSynth Atelier** ecosystem — a studio focused on human-centered AI systems, governance, and creative tooling.
+LMCP is developed by **Quincy Perry** as part of the **DigitalSynth Atelier** ecosystem — tools for human-governed AI workflows.
 
 ---
 

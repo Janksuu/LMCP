@@ -110,8 +110,8 @@ cat logs/audit.log
 ```
 
 Each line is a JSON object with:
-- `timestamp` — ISO 8601 timestamp
-- `event_type` — `client_auth` or `server_auth`
+- `ts` — ISO 8601 timestamp
+- `event` — `client_auth` or `server_auth`
 - `client_id` — Client identifier
 - `allowed` — Boolean result
 - `reason` — Decision explanation

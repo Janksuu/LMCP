@@ -4,6 +4,7 @@ import argparse
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import shutil
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -83,6 +84,15 @@ def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[s
     handler.wfile.write(body)
 
 
+def _html_response(handler: BaseHTTPRequestHandler, status: int, html: str) -> None:
+    body = html.encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", "text/html; charset=utf-8")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
 def _extract_query(handler: BaseHTTPRequestHandler) -> dict[str, str]:
     parsed = urlparse(handler.path)
     raw = parse_qs(parsed.query)
@@ -113,13 +123,49 @@ def _mcp_error(handler: BaseHTTPRequestHandler, request_id: Any, code: int, mess
     )
 
 
+def _server_timeout_seconds(server: Any, timeout_key: str) -> float:
+    default_timeouts = {
+        "stdio": {"initialize_s": 90.0, "tools_list_s": 90.0, "tools_call_s": 180.0},
+        "http": {"initialize_s": 60.0, "tools_list_s": 60.0, "tools_call_s": 300.0},
+    }
+    default_value = default_timeouts.get(server.transport, {}).get(timeout_key, 60.0)
+    configured_value = getattr(getattr(server, "timeouts", None), timeout_key, None)
+    if configured_value is None:
+        return float(default_value)
+    try:
+        return max(0.001, float(configured_value))
+    except (TypeError, ValueError):
+        return float(default_value)
+
+
+def _server_retry_on_timeout(server: Any) -> int:
+    configured_value = getattr(getattr(server, "timeouts", None), "retry_on_timeout", 0)
+    try:
+        return max(0, int(configured_value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _server_retry_backoff_seconds(server: Any) -> float:
+    configured_value = getattr(getattr(server, "timeouts", None), "retry_backoff_s", 1.0)
+    try:
+        return max(0.001, float(configured_value))
+    except (TypeError, ValueError):
+        return 1.0
+
+
 def _collect_tools_for_server(daemon: LmcpDaemon, server_id: str) -> list[dict[str, Any]]:
     server = daemon.registry.servers.get(server_id)
     if not server:
         return []
     if server.transport == "http":
         try:
-            result = http_tools_list(server)
+            result = http_tools_list(
+                server,
+                timeout_s=_server_timeout_seconds(server, "tools_list_s"),
+                retry_on_timeout=_server_retry_on_timeout(server),
+                retry_backoff_s=_server_retry_backoff_seconds(server),
+            )
             return result.get("result", {}).get("tools", []) or []
         except HttpMcpError:
             return []
@@ -131,7 +177,13 @@ def _collect_tools_for_server(daemon: LmcpDaemon, server_id: str) -> list[dict[s
         except Exception:
             return []
         try:
-            result = initialize_and_list_tools(session)
+            result = initialize_and_list_tools(
+                session,
+                initialize_timeout_s=_server_timeout_seconds(server, "initialize_s"),
+                tools_list_timeout_s=_server_timeout_seconds(server, "tools_list_s"),
+                retry_on_timeout=_server_retry_on_timeout(server),
+                retry_backoff_s=_server_retry_backoff_seconds(server),
+            )
             return result.get("tools_list", {}).get("result", {}).get("tools", []) or []
         except Exception:
             return []
@@ -155,7 +207,7 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                     200,
                     {
                         "ok": True,
-                        "service": "lmcp-v0",
+                        "service": "lmcp-v2",
                         "host": daemon.registry.lmcp.host,
                         "port": daemon.registry.lmcp.port,
                     },
@@ -164,6 +216,104 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
 
             if path == "/describe":
                 _json_response(self, 200, {"ok": True, "describe": daemon.describe()})
+                return
+
+            if path == "/status":
+                query = _extract_query(self)
+                try:
+                    limit = max(int(query.get("limit", "10")), 0)
+                except ValueError:
+                    _json_response(self, 400, {"ok": False, "error": "invalid_limit"})
+                    return
+                payload = _build_status_payload(
+                    registry=daemon.registry,
+                    audit_path=_resolve_audit_path(daemon.registry),
+                    limit=limit,
+                )
+                _json_response(self, 200, {"ok": True, "status": payload})
+                return
+
+            if path == "/ui":
+                html = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LMCP Status</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 24px; background: #0b0f14; color: #d9e1ea; }
+    h1 { margin: 0 0 12px; font-size: 22px; }
+    .meta { margin-bottom: 16px; color: #8ca2b8; }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+    @media (min-width: 1100px) { .grid { grid-template-columns: 1fr 1fr; } .wide { grid-column: 1 / span 2; } }
+    .panel { border: 1px solid #233447; border-radius: 8px; padding: 12px; background: #111923; }
+    .panel h2 { margin: 0 0 10px; font-size: 16px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 6px 8px; border-bottom: 1px solid #1d2a38; text-align: left; vertical-align: top; font-size: 13px; }
+    th { color: #8ca2b8; font-weight: 600; }
+    .small { color: #8ca2b8; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>LMCP Read-Only Status</h1>
+  <div class="meta" id="meta">Loading status...</div>
+  <div class="grid">
+    <section class="panel">
+      <h2>Servers</h2>
+      <table id="servers"><thead><tr><th>Server</th><th>Transport</th><th>Available</th><th>Policy</th></tr></thead><tbody></tbody></table>
+    </section>
+    <section class="panel">
+      <h2>Clients</h2>
+      <table id="clients"><thead><tr><th>Client</th><th>Token</th><th>Allowed Servers</th></tr></thead><tbody></tbody></table>
+    </section>
+    <section class="panel wide">
+      <h2>Recent Audit</h2>
+      <table id="audit"><thead><tr><th>Timestamp</th><th>Event</th><th>Client</th><th>Server</th><th>Allowed</th><th>Reason</th></tr></thead><tbody></tbody></table>
+      <div class="small">Read-only operational view. No control actions are exposed.</div>
+    </section>
+  </div>
+  <script>
+    async function loadStatus() {
+      const response = await fetch('/status?limit=25', { cache: 'no-store' });
+      const payload = await response.json();
+      const status = payload.status || {};
+      document.getElementById('meta').textContent =
+        `service=${status.service || '?'} host=${status.host || '?'} port=${status.port || '?'} loopback_only=${status.loopback_only}`;
+
+      const serversBody = document.querySelector('#servers tbody');
+      serversBody.innerHTML = '';
+      (status.servers || []).forEach(s => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${s.server_id || ''}</td><td>${s.transport || ''}</td><td>${String(s.available_hint)}</td><td>${s.tool_policy_mode || ''}</td>`;
+        serversBody.appendChild(tr);
+      });
+
+      const clientsBody = document.querySelector('#clients tbody');
+      clientsBody.innerHTML = '';
+      (status.clients || []).forEach(c => {
+        const tr = document.createElement('tr');
+        const allow = Array.isArray(c.allow_servers) ? c.allow_servers.join(', ') : '';
+        tr.innerHTML = `<td>${c.client_id || ''}</td><td>${c.token_status || ''}</td><td>${allow}</td>`;
+        clientsBody.appendChild(tr);
+      });
+
+      const auditBody = document.querySelector('#audit tbody');
+      auditBody.innerHTML = '';
+      (status.recent_audit_entries || []).forEach(e => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${e.ts || ''}</td><td>${e.event || ''}</td><td>${e.client_id || ''}</td><td>${e.server_id || ''}</td><td>${e.allowed}</td><td>${e.reason || ''}</td>`;
+        auditBody.appendChild(tr);
+      });
+    }
+    loadStatus().catch(err => {
+      document.getElementById('meta').textContent = `status_error=${err}`;
+    });
+    setInterval(() => { loadStatus().catch(() => {}); }, 5000);
+  </script>
+</body>
+</html>"""
+                _html_response(self, 200, html)
                 return
 
             if path == "/auth-check":
@@ -212,7 +362,7 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                     "ok": False,
                     "error": "not_found",
                     "path": parsed.path,
-                    "hints": ["/health", "/describe", "/auth-check", "/server-check"],
+                    "hints": ["/health", "/describe", "/status", "/ui", "/auth-check", "/server-check"],
                 },
             )
 
@@ -286,13 +436,26 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                     return
                 try:
                     if server.transport == "http":
-                        result = http_call_tool(server, actual_tool, arguments)
+                        result = http_call_tool(
+                            server,
+                            actual_tool,
+                            arguments,
+                            timeout_s=_server_timeout_seconds(server, "tools_call_s"),
+                        )
                         _json_response(self, 200, {"jsonrpc": "2.0", "id": request_id, "result": result.get("result", result)})
                         return
                     if server.transport == "stdio":
                         session = spawn_stdio_server(server)
                         try:
-                            result = initialize_and_call_tool(session, actual_tool, arguments)
+                            result = initialize_and_call_tool(
+                                session,
+                                actual_tool,
+                                arguments,
+                                initialize_timeout_s=_server_timeout_seconds(server, "initialize_s"),
+                                tools_call_timeout_s=_server_timeout_seconds(server, "tools_call_s"),
+                                retry_on_timeout=_server_retry_on_timeout(server),
+                                retry_backoff_s=_server_retry_backoff_seconds(server),
+                            )
                             _json_response(self, 200, {"jsonrpc": "2.0", "id": request_id, "result": result.get("call", result)})
                             return
                         finally:
@@ -310,7 +473,7 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="LMCP v0 daemon skeleton")
+    parser = argparse.ArgumentParser(description="LMCP v2 daemon")
     parser.add_argument(
         "--registry",
         default="config/registry.yaml",
@@ -329,7 +492,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--serve-http",
         action="store_true",
-        help="Start a minimal LMCP HTTP surface for testing",
+        help="Start the LMCP HTTP surface",
     )
     parser.add_argument(
         "--stdio-test",
@@ -376,6 +539,22 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print the LMCP registry JSON schema and exit",
     )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Print human-readable LMCP status (clients, servers, recent audit entries) and exit",
+    )
+    parser.add_argument(
+        "--status-json",
+        action="store_true",
+        help="Print JSON LMCP status payload and exit",
+    )
+    parser.add_argument(
+        "--status-limit",
+        type=int,
+        default=10,
+        help="Number of recent audit entries to include in status output (default: 10)",
+    )
     return parser.parse_args()
 
 
@@ -383,6 +562,138 @@ def _resolve_audit_path(registry: Registry) -> Path:
     registry_dir = registry.path.parent
     repo_root = registry_dir.parent
     return (repo_root / registry.lmcp.audit_log).resolve()
+
+
+def _server_command_available(command: str | None) -> bool:
+    if not command:
+        return False
+    command_path = Path(command)
+    if command_path.is_absolute():
+        return command_path.exists()
+    return shutil.which(command) is not None
+
+
+def _read_recent_audit_entries(audit_path: Path, limit: int) -> list[dict[str, Any]]:
+    if limit <= 0 or not audit_path.exists():
+        return []
+    try:
+        lines = audit_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+
+    entries: list[dict[str, Any]] = []
+    for line in lines[-limit:]:
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            entries.append({"raw": line, "error": "invalid_json"})
+            continue
+        if isinstance(payload, dict):
+            entries.append(payload)
+    return entries
+
+
+def _build_status_payload(registry: Registry, audit_path: Path, limit: int) -> dict[str, Any]:
+    clients = []
+    for client_id, client in sorted(registry.clients.items()):
+        token = client.token.strip()
+        token_status = (
+            "empty"
+            if token == ""
+            else "placeholder"
+            if token.lower().startswith("replace-me")
+            else "set"
+        )
+        clients.append(
+            {
+                "client_id": client_id,
+                "token_status": token_status,
+                "allow_servers": list(client.allow_servers),
+            }
+        )
+
+    servers = []
+    for server_id, server in sorted(registry.servers.items()):
+        if server.transport == "stdio":
+            target = " ".join([server.command or "", *server.args]).strip()
+            available_hint = _server_command_available(server.command)
+        else:
+            target = server.url or ""
+            available_hint = bool(server.url)
+
+        servers.append(
+            {
+                "server_id": server_id,
+                "transport": server.transport,
+                "target": target,
+                "available_hint": available_hint,
+                "tool_policy_mode": server.tool_policy.mode,
+                "timeouts": {
+                    "initialize_s": _server_timeout_seconds(server, "initialize_s"),
+                    "tools_list_s": _server_timeout_seconds(server, "tools_list_s"),
+                    "tools_call_s": _server_timeout_seconds(server, "tools_call_s"),
+                    "retry_on_timeout": _server_retry_on_timeout(server),
+                    "retry_backoff_s": _server_retry_backoff_seconds(server),
+                },
+            }
+        )
+
+    return {
+        "service": "lmcp-v2",
+        "host": registry.lmcp.host,
+        "port": registry.lmcp.port,
+        "loopback_only": registry.lmcp.loopback_only,
+        "registry_path": str(registry.path),
+        "audit_log_path": str(audit_path),
+        "clients": clients,
+        "servers": servers,
+        "recent_audit_entries": _read_recent_audit_entries(audit_path, limit=limit),
+    }
+
+
+def _print_status_human(payload: dict[str, Any]) -> None:
+    print("LMCP status")
+    print(
+        f"- service: {payload.get('service')}  host: {payload.get('host')}  port: {payload.get('port')}  loopback_only: {payload.get('loopback_only')}"
+    )
+    print(f"- registry: {payload.get('registry_path')}")
+    print(f"- audit_log: {payload.get('audit_log_path')}")
+
+    print("\nClients:")
+    clients = payload.get("clients", []) or []
+    if not clients:
+        print("- none")
+    for client in clients:
+        allow_servers = ", ".join(client.get("allow_servers", []))
+        print(
+            f"- {client.get('client_id')}  token={client.get('token_status')}  allow=[{allow_servers}]"
+        )
+
+    print("\nServers:")
+    servers = payload.get("servers", []) or []
+    if not servers:
+        print("- none")
+    for server in servers:
+        print(
+            f"- {server.get('server_id')}  transport={server.get('transport')}  available_hint={server.get('available_hint')}  policy={server.get('tool_policy_mode')}"
+        )
+        print(f"  target: {server.get('target')}")
+        timeouts = server.get("timeouts", {}) or {}
+        print(
+            f"  timeouts: initialize={timeouts.get('initialize_s')}s list={timeouts.get('tools_list_s')}s call={timeouts.get('tools_call_s')}s retry_on_timeout={timeouts.get('retry_on_timeout')} backoff={timeouts.get('retry_backoff_s')}s"
+        )
+
+    print("\nRecent audit entries:")
+    recent_entries = payload.get("recent_audit_entries", []) or []
+    if not recent_entries:
+        print("- none")
+    for entry in recent_entries:
+        if "raw" in entry:
+            print(f"- invalid entry: {entry.get('raw')}")
+            continue
+        print(
+            f"- {entry.get('ts', '?')}  event={entry.get('event')}  client={entry.get('client_id')}  server={entry.get('server_id')}  allowed={entry.get('allowed')}  reason={entry.get('reason')}"
+        )
 
 
 def run() -> int:
@@ -410,6 +721,18 @@ def run() -> int:
         print(registry_to_json(registry))
         return 0
 
+    if args.status or args.status_json:
+        status_payload = _build_status_payload(
+            registry=registry,
+            audit_path=_resolve_audit_path(registry),
+            limit=max(args.status_limit, 0),
+        )
+        if args.status_json:
+            print(json.dumps(status_payload, indent=2))
+        else:
+            _print_status_human(status_payload)
+        return 0
+
     if args.self_test:
         print("LMCP self-test starting...")
         sample_client = next(iter(registry.clients.values()))
@@ -424,8 +747,8 @@ def run() -> int:
     if args.serve_http:
         host = registry.lmcp.host
         port = registry.lmcp.port
-        print(f"LMCP HTTP test surface starting on http://{host}:{port}")
-        print("Available endpoints: /health, /describe, /auth-check, /server-check")
+        print(f"LMCP HTTP surface starting on http://{host}:{port}")
+        print("Available endpoints: /health, /describe, /status, /ui, /auth-check, /server-check, /mcp")
         server = ThreadingHTTPServer((host, port), _make_handler(daemon))
         try:
             server.serve_forever()
@@ -447,7 +770,13 @@ def run() -> int:
         print(f"LMCP stdio test: spawning '{server_id}' via: {server.command} {' '.join(server.args)}")
         try:
             session = spawn_stdio_server(server)
-            result = initialize_and_list_tools(session)
+            result = initialize_and_list_tools(
+                session,
+                initialize_timeout_s=_server_timeout_seconds(server, "initialize_s"),
+                tools_list_timeout_s=_server_timeout_seconds(server, "tools_list_s"),
+                retry_on_timeout=_server_retry_on_timeout(server),
+                retry_backoff_s=_server_retry_backoff_seconds(server),
+            )
             print(json.dumps(result, indent=2))
             return 0
         except McpProtocolError as exc:
@@ -494,26 +823,16 @@ def run() -> int:
         session = None
         try:
             session = spawn_stdio_server(server)
-            try:
-                from mcp.types import LATEST_PROTOCOL_VERSION  # type: ignore
-                protocol_version = str(LATEST_PROTOCOL_VERSION)
-            except Exception:
-                protocol_version = "2025-11-25"
-            # initialize
-            initialize_params = {
-                "protocolVersion": protocol_version,
-                "clientInfo": {"name": "lmcp-v0", "version": "0.1.0"},
-                "capabilities": {},
-            }
-            init_response = session.request(
-                "initialize", initialize_params, request_id=1, timeout_s=90.0
+            result = initialize_and_call_tool(
+                session,
+                args.tool,
+                tool_args,
+                initialize_timeout_s=_server_timeout_seconds(server, "initialize_s"),
+                tools_call_timeout_s=_server_timeout_seconds(server, "tools_call_s"),
+                retry_on_timeout=_server_retry_on_timeout(server),
+                retry_backoff_s=_server_retry_backoff_seconds(server),
             )
-            session.notify("initialized", {})
-            call_params = {"name": args.tool, "arguments": tool_args}
-            call_response = session.request(
-                "tools/call", call_params, request_id=2, timeout_s=180.0
-            )
-            print(json.dumps({"initialize": init_response, "call": call_response}, indent=2))
+            print(json.dumps(result, indent=2))
             return 0
         except McpProtocolError as exc:
             print(f"LMCP stdio call protocol error: {exc}")
@@ -542,7 +861,12 @@ def run() -> int:
             return 2
         print(f"LMCP http test: {server_id} -> {server.url}")
         try:
-            result = http_tools_list(server)
+            result = http_tools_list(
+                server,
+                timeout_s=_server_timeout_seconds(server, "tools_list_s"),
+                retry_on_timeout=_server_retry_on_timeout(server),
+                retry_backoff_s=_server_retry_backoff_seconds(server),
+            )
             print(json.dumps(result, indent=2))
             return 0
         except HttpMcpError as exc:
@@ -580,16 +904,21 @@ def run() -> int:
             return 2
         print(f"LMCP http call: {server_id} -> {server.url} -> {args.tool}")
         try:
-            result = http_call_tool(server, args.tool, tool_args)
+            result = http_call_tool(
+                server,
+                args.tool,
+                tool_args,
+                timeout_s=_server_timeout_seconds(server, "tools_call_s"),
+            )
             print(json.dumps(result, indent=2))
             return 0
         except HttpMcpError as exc:
             print(f"LMCP http call error: {exc}")
             return 3
 
-    print("LMCP v0 daemon skeleton")
+    print("LMCP v2 daemon")
     print(daemon.describe())
-    print("Next step: add MCP transport proxy layer.")
+    print("Use --help for available commands.")
     return 0
 
 

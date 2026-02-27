@@ -30,6 +30,14 @@ servers:
     args: ["-y", "ollama-mcp-server"]
     env:
       OLLAMA_HOST: "http://127.0.0.1:11434"
+    # Optional timeout tuning (seconds).
+    # Keep call timeouts high for long-running models.
+    timeouts:
+      initialize_s: 30
+      tools_list_s: 30
+      tools_call_s: 300
+      retry_on_timeout: 1
+      retry_backoff_s: 1.5
     tool_policy:
       mode: allow_all
       allow_tools: []
@@ -40,6 +48,12 @@ servers:
     transport: http
     url: "http://127.0.0.1:9000/mcp"
     headers: {}
+    # HTTP example with longer call timeout for generation workloads
+    timeouts:
+      tools_list_s: 20
+      tools_call_s: 600
+      retry_on_timeout: 1
+      retry_backoff_s: 2
     tool_policy:
       mode: allow_all
       allow_tools: []
@@ -59,7 +73,7 @@ servers:
   # Example: Restricted server (no tools allowed)
   restricted-server:
     transport: http
-    url: "https://example.com/mcp"
+    url: "http://127.0.0.1:9100/mcp"
     headers: {}
     tool_policy:
       mode: deny_all

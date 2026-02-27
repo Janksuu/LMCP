@@ -39,7 +39,8 @@ logs/
 config/logs/
 
 # Local configuration (users should create their own from registry.example.yaml)
-config/registry.yaml
+config/registry*.yaml
+!config/registry.example.yaml
 
 # OS
 .DS_Store
@@ -49,3 +50,6 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Local planning context (not part of release artifacts)
+planning/

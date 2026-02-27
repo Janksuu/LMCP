@@ -30,6 +30,15 @@ class ToolPolicy:
 
 
 @dataclass
+class ServerTimeouts:
+    initialize_s: float | None = None
+    tools_list_s: float | None = None
+    tools_call_s: float | None = None
+    retry_on_timeout: int = 0
+    retry_backoff_s: float = 1.0
+
+
+@dataclass
 class ServerConfig:
     server_id: str
     transport: str
@@ -41,6 +50,7 @@ class ServerConfig:
     headers: dict[str, str] = field(default_factory=dict)
     tool_policy: ToolPolicy = field(default_factory=ToolPolicy)
     stdio_mode: str = "newline"
+    timeouts: ServerTimeouts = field(default_factory=ServerTimeouts)
 
 
 @dataclass
@@ -58,6 +68,39 @@ def _coerce_tool_policy(raw: dict[str, Any] | None) -> ToolPolicy:
         mode=str(raw.get("mode", "allow_all")),
         allow_tools=[str(x) for x in raw.get("allow_tools", [])],
         deny_tools=[str(x) for x in raw.get("deny_tools", [])],
+    )
+
+
+def _coerce_server_timeouts(raw: dict[str, Any] | None) -> ServerTimeouts:
+    if not raw:
+        return ServerTimeouts()
+
+    def _to_float(value: Any) -> float | None:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    retry_on_timeout_raw = raw.get("retry_on_timeout", 0)
+    try:
+        retry_on_timeout = int(retry_on_timeout_raw)
+    except (TypeError, ValueError):
+        retry_on_timeout = 0
+
+    retry_backoff_s_raw = raw.get("retry_backoff_s", 1.0)
+    try:
+        retry_backoff_s = float(retry_backoff_s_raw)
+    except (TypeError, ValueError):
+        retry_backoff_s = 1.0
+
+    return ServerTimeouts(
+        initialize_s=_to_float(raw.get("initialize_s")),
+        tools_list_s=_to_float(raw.get("tools_list_s")),
+        tools_call_s=_to_float(raw.get("tools_call_s")),
+        retry_on_timeout=max(0, retry_on_timeout),
+        retry_backoff_s=max(0.0, retry_backoff_s),
     )
 
 
@@ -104,6 +147,7 @@ def load_registry(path: str | Path) -> Registry:
             headers={str(k): str(v) for k, v in (raw.get("headers", {}) or {}).items()},
             tool_policy=_coerce_tool_policy(raw.get("tool_policy")),
             stdio_mode=str(raw.get("stdio_mode", "newline")),
+            timeouts=_coerce_server_timeouts(raw.get("timeouts")),
         )
 
     return Registry(path=registry_path, lmcp=lmcp, clients=clients, servers=servers)
@@ -160,10 +204,33 @@ def validate_registry_data(data: dict[str, Any]) -> list[str]:
                 errors.append(f"server '{server_id}' http missing url")
             url = str((cfg or {}).get("url", ""))
             if loopback_only and url:
-                if not re.match(r"^https?://(127\\.0\\.0\\.1|localhost)(:\\d+)?(/|$)", url):
+                if not re.match(r"^https?://(127\.0\.0\.1|localhost)(:\d+)?(/|$)", url):
                     errors.append(f"server '{server_id}' http url is not loopback while loopback_only is true")
         else:
             errors.append(f"server '{server_id}' has invalid transport '{transport}'")
+
+        timeouts = (cfg or {}).get("timeouts", {}) or {}
+        for key in ("initialize_s", "tools_list_s", "tools_call_s", "retry_backoff_s"):
+            value = timeouts.get(key)
+            if value is None:
+                continue
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                errors.append(f"server '{server_id}' timeouts.{key} must be a number")
+                continue
+            if numeric <= 0:
+                errors.append(f"server '{server_id}' timeouts.{key} must be > 0")
+
+        retry_raw = timeouts.get("retry_on_timeout")
+        if retry_raw is not None:
+            try:
+                retry_value = int(retry_raw)
+            except (TypeError, ValueError):
+                errors.append(f"server '{server_id}' timeouts.retry_on_timeout must be an integer >= 0")
+            else:
+                if retry_value < 0:
+                    errors.append(f"server '{server_id}' timeouts.retry_on_timeout must be >= 0")
 
     return errors
 
@@ -183,8 +250,9 @@ def registry_to_json(registry: Registry) -> str:
         "clients": {k: v.__dict__ for k, v in registry.clients.items()},
         "servers": {
             k: {
-                **{kk: vv for kk, vv in v.__dict__.items() if kk != "tool_policy"},
+                **{kk: vv for kk, vv in v.__dict__.items() if kk not in {"tool_policy", "timeouts"}},
                 "tool_policy": v.tool_policy.__dict__,
+                "timeouts": v.timeouts.__dict__,
             }
             for k, v in registry.servers.items()
         },

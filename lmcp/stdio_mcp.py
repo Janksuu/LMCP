@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import threading
+import time
 from queue import Queue, Empty
 from typing import Any
 
@@ -13,6 +14,10 @@ from .config import ServerConfig
 
 class McpProtocolError(RuntimeError):
     pass
+
+
+def _is_timeout_error(exc: Exception) -> bool:
+    return isinstance(exc, McpProtocolError) and str(exc).startswith("read_timeout:")
 
 
 def _encode_message(payload: dict[str, Any]) -> bytes:
@@ -174,7 +179,35 @@ def spawn_stdio_server(server: ServerConfig) -> StdioMcpSession:
     return StdioMcpSession(process=process, stdio_mode=server.stdio_mode)
 
 
-def initialize_and_list_tools(session: StdioMcpSession) -> dict[str, Any]:
+def _request_with_timeout_retries(
+    session: StdioMcpSession,
+    method: str,
+    params: dict[str, Any] | None,
+    request_id: int,
+    timeout_s: float,
+    retry_on_timeout: int,
+    retry_backoff_s: float,
+) -> dict[str, Any]:
+    attempts = max(0, int(retry_on_timeout)) + 1
+    for attempt_index in range(attempts):
+        try:
+            return session.request(method, params, request_id=request_id, timeout_s=timeout_s)
+        except Exception as exc:
+            if not _is_timeout_error(exc) or attempt_index >= attempts - 1:
+                raise
+            backoff = max(0.0, float(retry_backoff_s))
+            if backoff > 0:
+                time.sleep(backoff)
+    raise McpProtocolError("request_retry_exhausted")
+
+
+def initialize_and_list_tools(
+    session: StdioMcpSession,
+    initialize_timeout_s: float = 90.0,
+    tools_list_timeout_s: float = 90.0,
+    retry_on_timeout: int = 0,
+    retry_backoff_s: float = 1.0,
+) -> dict[str, Any]:
     try:
         from mcp.types import LATEST_PROTOCOL_VERSION  # type: ignore
         protocol_version = str(LATEST_PROTOCOL_VERSION)
@@ -185,14 +218,36 @@ def initialize_and_list_tools(session: StdioMcpSession) -> dict[str, Any]:
         "clientInfo": {"name": "lmcp-v0", "version": "0.1.0"},
         "capabilities": {},
     }
-    init_response = session.request("initialize", initialize_params, request_id=1, timeout_s=90.0)
+    init_response = _request_with_timeout_retries(
+        session,
+        "initialize",
+        initialize_params,
+        request_id=1,
+        timeout_s=initialize_timeout_s,
+        retry_on_timeout=retry_on_timeout,
+        retry_backoff_s=retry_backoff_s,
+    )
     session.notify("initialized", {})
-    tools_response = session.request("tools/list", {}, request_id=2, timeout_s=90.0)
+    tools_response = _request_with_timeout_retries(
+        session,
+        "tools/list",
+        {},
+        request_id=2,
+        timeout_s=tools_list_timeout_s,
+        retry_on_timeout=retry_on_timeout,
+        retry_backoff_s=retry_backoff_s,
+    )
     return {"initialize": init_response, "tools_list": tools_response}
 
 
 def initialize_and_call_tool(
-    session: StdioMcpSession, tool_name: str, arguments: dict[str, Any]
+    session: StdioMcpSession,
+    tool_name: str,
+    arguments: dict[str, Any],
+    initialize_timeout_s: float = 90.0,
+    tools_call_timeout_s: float = 180.0,
+    retry_on_timeout: int = 0,
+    retry_backoff_s: float = 1.0,
 ) -> dict[str, Any]:
     try:
         from mcp.types import LATEST_PROTOCOL_VERSION  # type: ignore
@@ -205,8 +260,16 @@ def initialize_and_call_tool(
         "clientInfo": {"name": "lmcp-v0", "version": "0.1.0"},
         "capabilities": {},
     }
-    init_response = session.request("initialize", initialize_params, request_id=1, timeout_s=90.0)
+    init_response = _request_with_timeout_retries(
+        session,
+        "initialize",
+        initialize_params,
+        request_id=1,
+        timeout_s=initialize_timeout_s,
+        retry_on_timeout=retry_on_timeout,
+        retry_backoff_s=retry_backoff_s,
+    )
     session.notify("initialized", {})
     call_params = {"name": tool_name, "arguments": arguments}
-    call_response = session.request("tools/call", call_params, request_id=2, timeout_s=180.0)
+    call_response = session.request("tools/call", call_params, request_id=2, timeout_s=tools_call_timeout_s)
     return {"initialize": init_response, "call": call_response}

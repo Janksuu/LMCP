@@ -41,6 +41,17 @@
           "url": { "type": ["string", "null"] },
           "headers": { "type": "object", "additionalProperties": { "type": "string" } },
           "stdio_mode": { "type": "string", "enum": ["newline", "content-length"] },
+          "timeouts": {
+            "type": "object",
+            "properties": {
+              "initialize_s": { "type": "number", "exclusiveMinimum": 0 },
+              "tools_list_s": { "type": "number", "exclusiveMinimum": 0 },
+              "tools_call_s": { "type": "number", "exclusiveMinimum": 0 },
+              "retry_on_timeout": { "type": "integer", "minimum": 0 },
+              "retry_backoff_s": { "type": "number", "exclusiveMinimum": 0 }
+            },
+            "additionalProperties": false
+          },
           "tool_policy": {
             "type": "object",
             "properties": {

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import socket
+import time
 from typing import Any
 from urllib import request
 from urllib.error import HTTPError, URLError
@@ -46,22 +48,59 @@ def _make_request(
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise HttpMcpError(f"http_error:{exc.code}:{detail[:500]}") from exc
+    except TimeoutError as exc:
+        raise HttpMcpError(f"timeout_error:{exc}") from exc
     except URLError as exc:
+        reason = getattr(exc, "reason", None)
+        if isinstance(reason, (TimeoutError, socket.timeout)) or "timed out" in str(reason).lower():
+            raise HttpMcpError(f"timeout_error:{exc}") from exc
         raise HttpMcpError(f"url_error:{exc}") from exc
 
 
-def http_tools_list(server: ServerConfig) -> dict[str, Any]:
+def _request_with_timeout_retries(
+    make_request: Any,
+    retry_on_timeout: int,
+    retry_backoff_s: float,
+) -> dict[str, Any]:
+    attempts = max(0, int(retry_on_timeout)) + 1
+    for attempt_index in range(attempts):
+        try:
+            return make_request()
+        except HttpMcpError as exc:
+            is_timeout = str(exc).startswith("timeout_error:")
+            if (not is_timeout) or attempt_index >= attempts - 1:
+                raise
+            backoff = max(0.0, float(retry_backoff_s))
+            if backoff > 0:
+                time.sleep(backoff)
+    raise HttpMcpError("timeout_error:retry_exhausted")
+
+
+def http_tools_list(
+    server: ServerConfig,
+    timeout_s: float | None = None,
+    retry_on_timeout: int = 0,
+    retry_backoff_s: float = 1.0,
+) -> dict[str, Any]:
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
     }
     headers.update(server.headers or {})
     payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
-    return _make_request(server.url or "", headers, payload)
+    effective_timeout_s = float(timeout_s) if timeout_s is not None else 60.0
+    return _request_with_timeout_retries(
+        lambda: _make_request(server.url or "", headers, payload, timeout_s=effective_timeout_s),
+        retry_on_timeout=retry_on_timeout,
+        retry_backoff_s=retry_backoff_s,
+    )
 
 
 def http_call_tool(
-    server: ServerConfig, tool_name: str, arguments: dict[str, Any]
+    server: ServerConfig,
+    tool_name: str,
+    arguments: dict[str, Any],
+    timeout_s: float | None = None,
 ) -> dict[str, Any]:
     headers = {
         "Content-Type": "application/json",
@@ -74,5 +113,5 @@ def http_call_tool(
         "method": "tools/call",
         "params": {"name": tool_name, "arguments": arguments},
     }
-    return _make_request(server.url or "", headers, payload, timeout_s=300.0)
-
+    effective_timeout_s = float(timeout_s) if timeout_s is not None else 300.0
+    return _make_request(server.url or "", headers, payload, timeout_s=effective_timeout_s)
