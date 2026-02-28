@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any
 import json
 import re
+import stat as _stat
+import sys as _sys
 
 
 @dataclass
@@ -233,6 +235,28 @@ def validate_registry_data(data: dict[str, Any]) -> list[str]:
                     errors.append(f"server '{server_id}' timeouts.retry_on_timeout must be >= 0")
 
     return errors
+
+
+def check_registry_permissions(path: Path) -> list[str]:
+    """Return warning strings if registry file permissions are too permissive.
+
+    Only meaningful on POSIX systems (Linux, macOS). Returns an empty list on
+    Windows, where file access control is managed by ACLs rather than mode bits.
+    """
+    if _sys.platform == "win32":
+        return []
+    try:
+        import os
+        mode = os.stat(path).st_mode
+    except OSError:
+        return []
+    if mode & (_stat.S_IRGRP | _stat.S_IROTH):
+        octal = oct(_stat.S_IMODE(mode))
+        return [
+            f"registry file is readable by group or other users (mode {octal}). "
+            f"Restrict with: chmod 600 {path}"
+        ]
+    return []
 
 
 def validate_registry_file(path: str | Path) -> list[str]:

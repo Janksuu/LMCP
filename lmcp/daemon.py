@@ -5,12 +5,13 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import shutil
+import sys
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .audit import AuditEvent, AuditLogger
-from .config import Registry, load_registry, registry_to_json, validate_registry_file
+from .config import Registry, check_registry_permissions, load_registry, registry_to_json, validate_registry_file
 from .policy import authenticate_client, authorize_server
 from .http_mcp import HttpMcpError, http_call_tool, http_tools_list
 from .stdio_mcp import (
@@ -714,6 +715,8 @@ def run() -> int:
         return 0
 
     registry = load_registry(args.registry)
+    for _warn in check_registry_permissions(registry.path):
+        print(f"WARNING: {_warn}", file=sys.stderr)
     audit = AuditLogger(_resolve_audit_path(registry))
     daemon = LmcpDaemon(registry=registry, audit=audit)
 

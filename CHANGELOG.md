@@ -2,6 +2,15 @@
 
 All notable changes to LMCP are documented in this file.
 
+## v2.1.0 - 2026-02-27
+
+### Added
+- Registry file permission check on startup (POSIX only): warns to stderr if
+  `registry.yaml` is readable by group or other users, with `chmod 600` instruction.
+  No-ops on Windows, where ACLs govern file access.
+
+---
+
 ## v2.0.0 - 2026-02-19
 
 ### Added
