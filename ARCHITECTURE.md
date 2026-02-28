@@ -203,7 +203,7 @@ These are out of scope by design, not by omission:
 ## File Structure
 
 ```
-lmcp_v2/
+LMCP/
 ├── lmcp/
 │   ├── daemon.py        # HTTP server, routing, orchestration
 │   ├── config.py        # Registry loader and typed config objects
