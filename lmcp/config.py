@@ -237,6 +237,22 @@ def validate_registry_data(data: dict[str, Any]) -> list[str]:
     return errors
 
 
+def check_remote_mode(lmcp: LmcpSettings) -> list[str]:
+    """Return warning strings if LMCP is configured to accept non-loopback connections.
+
+    Fires when loopback_only is False and the bound host is not a loopback address.
+    This is the actual network-exposed condition — the operator deliberately widened
+    the attack surface, and the warning makes that explicit at every startup.
+    """
+    if lmcp.loopback_only or _is_loopback_host(lmcp.host):
+        return []
+    return [
+        f"loopback_only is disabled and host is '{lmcp.host}'. "
+        f"LMCP will accept connections from the network. "
+        f"Ensure all client tokens are strong and this exposure is intentional."
+    ]
+
+
 def check_registry_permissions(path: Path) -> list[str]:
     """Return warning strings if registry file permissions are too permissive.
 
