@@ -2,12 +2,19 @@
 
 All notable changes to LMCP are documented in this file.
 
-## v2.1.0 - 2026-02-27
+## v2.1.0 - 2026-03-27
 
 ### Added
 - Registry file permission check on startup (POSIX only): warns to stderr if
   `registry.yaml` is readable by group or other users, with `chmod 600` instruction.
   No-ops on Windows, where ACLs govern file access.
+- Remote mode hardening: warns to stderr at startup when `loopback_only` is disabled
+  and the bound host is not a loopback address. Reminds operator to verify token
+  strength and that network exposure is intentional.
+- Per-client rate limiting via in-memory token bucket. Configurable per-client
+  (`rate_limit_rpm` in client config) with optional global default (`rate_limit_rpm`
+  under `lmcp` settings). Returns MCP error -32009 (rate_limited) when exceeded.
+  Rate-limited requests are logged to the audit trail. Unlimited by default.
 
 ---
 

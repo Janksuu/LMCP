@@ -15,6 +15,7 @@ class LmcpSettings:
     port: int = 7345
     audit_log: str = "logs/audit.log"
     loopback_only: bool = True
+    rate_limit_rpm: int | None = None
 
 
 @dataclass
@@ -22,6 +23,7 @@ class ClientConfig:
     client_id: str
     token: str
     allow_servers: list[str] = field(default_factory=list)
+    rate_limit_rpm: int | None = None
 
 
 @dataclass
@@ -118,20 +120,28 @@ def load_registry(path: str | Path) -> Registry:
     data = yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
 
     lmcp_raw = data.get("lmcp", {}) or {}
+    _global_rpm_raw = lmcp_raw.get("rate_limit_rpm")
+    _global_rpm = int(_global_rpm_raw) if _global_rpm_raw is not None else None
+
     lmcp = LmcpSettings(
         host=str(lmcp_raw.get("host", "127.0.0.1")),
         port=int(lmcp_raw.get("port", 7345)),
         audit_log=str(lmcp_raw.get("audit_log", "logs/audit.log")),
         loopback_only=bool(lmcp_raw.get("loopback_only", True)),
+        rate_limit_rpm=_global_rpm,
     )
 
     clients_raw = data.get("clients", {}) or {}
     clients: dict[str, ClientConfig] = {}
     for client_id, raw in clients_raw.items():
+        _raw = raw or {}
+        _client_rpm_raw = _raw.get("rate_limit_rpm")
+        _client_rpm = int(_client_rpm_raw) if _client_rpm_raw is not None else None
         clients[client_id] = ClientConfig(
             client_id=client_id,
-            token=str((raw or {}).get("token", "")),
-            allow_servers=[str(x) for x in (raw or {}).get("allow_servers", [])],
+            token=str(_raw.get("token", "")),
+            allow_servers=[str(x) for x in _raw.get("allow_servers", [])],
+            rate_limit_rpm=_client_rpm,
         )
 
     servers_raw = data.get("servers", {}) or {}

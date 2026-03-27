@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import shutil
 import sys
+import time
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -22,10 +23,44 @@ from .stdio_mcp import (
 )
 
 
+class _TokenBucket:
+    """In-memory token bucket rate limiter. Refills continuously."""
+
+    def __init__(self, rpm: int) -> None:
+        self.rpm = rpm
+        self.tokens = float(rpm)
+        self.last_refill = time.monotonic()
+
+    def allow(self) -> bool:
+        now = time.monotonic()
+        elapsed = now - self.last_refill
+        self.tokens = min(self.rpm, self.tokens + elapsed * (self.rpm / 60.0))
+        self.last_refill = now
+        if self.tokens >= 1.0:
+            self.tokens -= 1.0
+            return True
+        return False
+
+
 @dataclass
 class LmcpDaemon:
     registry: Registry
     audit: AuditLogger
+
+    def __post_init__(self) -> None:
+        self._rate_limiters: dict[str, _TokenBucket] = {}
+
+    def check_rate_limit(self, client_id: str) -> bool:
+        """Return True if request is allowed, False if rate-limited."""
+        client = self.registry.clients.get(client_id)
+        if not client:
+            return True
+        rpm = client.rate_limit_rpm or self.registry.lmcp.rate_limit_rpm
+        if rpm is None:
+            return True
+        if client_id not in self._rate_limiters:
+            self._rate_limiters[client_id] = _TokenBucket(rpm)
+        return self._rate_limiters[client_id].allow()
 
     def describe(self) -> dict[str, Any]:
         return {
@@ -393,6 +428,18 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
             client_id, token = _extract_auth(self)
             if not client_id or not token or not daemon.authenticate(client_id, token):
                 _mcp_error(self, request_id, -32001, "unauthorized")
+                return
+
+            if not daemon.check_rate_limit(client_id):
+                daemon.audit.write(
+                    AuditEvent(
+                        event="rate_limited",
+                        client_id=client_id,
+                        allowed=False,
+                        reason="rate_limit_exceeded",
+                    )
+                )
+                _mcp_error(self, request_id, -32009, "rate_limited")
                 return
 
             if method == "initialize":

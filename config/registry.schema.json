@@ -11,7 +11,8 @@
         "host": { "type": "string" },
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
         "audit_log": { "type": "string" },
-        "loopback_only": { "type": "boolean" }
+        "loopback_only": { "type": "boolean" },
+        "rate_limit_rpm": { "type": "integer", "minimum": 1 }
       },
       "additionalProperties": false
     },
@@ -22,7 +23,8 @@
         "required": ["token", "allow_servers"],
         "properties": {
           "token": { "type": "string", "minLength": 1 },
-          "allow_servers": { "type": "array", "items": { "type": "string" } }
+          "allow_servers": { "type": "array", "items": { "type": "string" } },
+          "rate_limit_rpm": { "type": "integer", "minimum": 1 }
         },
         "additionalProperties": false
       }
