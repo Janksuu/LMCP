@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import shutil
 import sys
+import threading
 import time
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -24,22 +25,24 @@ from .stdio_mcp import (
 
 
 class _TokenBucket:
-    """In-memory token bucket rate limiter. Refills continuously."""
+    """In-memory token bucket rate limiter. Refills continuously. Thread-safe."""
 
     def __init__(self, rpm: int) -> None:
         self.rpm = rpm
         self.tokens = float(rpm)
         self.last_refill = time.monotonic()
+        self._lock = threading.Lock()
 
     def allow(self) -> bool:
-        now = time.monotonic()
-        elapsed = now - self.last_refill
-        self.tokens = min(self.rpm, self.tokens + elapsed * (self.rpm / 60.0))
-        self.last_refill = now
-        if self.tokens >= 1.0:
-            self.tokens -= 1.0
-            return True
-        return False
+        with self._lock:
+            now = time.monotonic()
+            elapsed = now - self.last_refill
+            self.tokens = min(self.rpm, self.tokens + elapsed * (self.rpm / 60.0))
+            self.last_refill = now
+            if self.tokens >= 1.0:
+                self.tokens -= 1.0
+                return True
+            return False
 
 
 @dataclass
@@ -49,6 +52,7 @@ class LmcpDaemon:
 
     def __post_init__(self) -> None:
         self._rate_limiters: dict[str, _TokenBucket] = {}
+        self._rate_limiters_lock = threading.Lock()
 
     def check_rate_limit(self, client_id: str) -> bool:
         """Return True if request is allowed, False if rate-limited."""
@@ -58,9 +62,11 @@ class LmcpDaemon:
         rpm = client.rate_limit_rpm or self.registry.lmcp.rate_limit_rpm
         if rpm is None:
             return True
-        if client_id not in self._rate_limiters:
-            self._rate_limiters[client_id] = _TokenBucket(rpm)
-        return self._rate_limiters[client_id].allow()
+        with self._rate_limiters_lock:
+            if client_id not in self._rate_limiters:
+                self._rate_limiters[client_id] = _TokenBucket(rpm)
+            bucket = self._rate_limiters[client_id]
+        return bucket.allow()
 
     def describe(self) -> dict[str, Any]:
         return {

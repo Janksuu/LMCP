@@ -6,6 +6,7 @@ lmcp:
   port: 7345
   audit_log: logs/audit.log
   loopback_only: true
+  # rate_limit_rpm: 60         # Optional global default (requests per minute, all clients)
 
 # Define clients that can connect to LMCP
 # Each client needs a unique token and list of allowed servers
@@ -15,11 +16,13 @@ clients:
     allow_servers:
       - ollama-mcp
       - comfyui-mcp
+    rate_limit_rpm: 120              # Optional per-client limit (overrides global)
 
   claude-desktop:
     token: "another-secure-token"
     allow_servers:
       - ollama-mcp
+    # rate_limit_rpm: 60             # Inherits global default if not set
 
 # Define MCP servers that LMCP can proxy to
 servers:

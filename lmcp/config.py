@@ -276,10 +276,14 @@ def check_registry_permissions(path: Path) -> list[str]:
         mode = os.stat(path).st_mode
     except OSError:
         return []
-    if mode & (_stat.S_IRGRP | _stat.S_IROTH):
+    group_other_bits = (
+        _stat.S_IRGRP | _stat.S_IWGRP |
+        _stat.S_IROTH | _stat.S_IWOTH
+    )
+    if mode & group_other_bits:
         octal = oct(_stat.S_IMODE(mode))
         return [
-            f"registry file is readable by group or other users (mode {octal}). "
+            f"registry file is accessible by group or other users (mode {octal}). "
             f"Restrict with: chmod 600 {path}"
         ]
     return []

@@ -197,6 +197,32 @@ Retry behavior is intentionally conservative:
 - Retries apply to `initialize` and `tools/list`.
 - `tools/call` is **not** auto-retried to avoid duplicate side effects.
 
+### Rate Limiting
+
+Optional per-client request throttling using an in-memory token bucket:
+
+```yaml
+lmcp:
+  rate_limit_rpm: 60           # Global default (requests per minute)
+
+clients:
+  vscode:
+    token: "..."
+    allow_servers: [...]
+    rate_limit_rpm: 120        # Per-client override
+```
+
+| Setting | Scope | Effect |
+|---------|-------|--------|
+| `lmcp.rate_limit_rpm` | Global | Default limit for clients that do not set their own |
+| `clients.<id>.rate_limit_rpm` | Per-client | Overrides the global default for this client |
+
+- Per-client takes precedence over global.
+- If neither is set, the client is unlimited.
+- Exceeding the limit returns MCP error `-32009` (`rate_limited`).
+- Rate-limited requests are recorded in the audit log.
+- State is in-memory and resets when the daemon restarts.
+
 ### Tool Policies
 
 Per-server control over which tools clients can call:
