@@ -1,5 +1,7 @@
 # LMCP
 
+[![SafeSkill 92/100](https://img.shields.io/badge/SafeSkill-92%2F100_Verified%20Safe-brightgreen)](https://safeskill.dev/scan/janksuu-lmcp)
+
 **Local MCP Control Plane** — A governance layer for Model Context Protocol servers.
 
 ```
