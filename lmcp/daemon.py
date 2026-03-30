@@ -23,6 +23,36 @@ from .stdio_mcp import (
     spawn_stdio_server,
 )
 
+STATUS_VERSION = 1
+
+STATUS_REQUIRED_FIELDS = frozenset({
+    "status_version",
+    "service",
+    "host",
+    "port",
+    "loopback_only",
+    "registry_path",
+    "audit_log_path",
+    "clients",
+    "servers",
+    "recent_audit_entries",
+})
+
+STATUS_CLIENT_REQUIRED_FIELDS = frozenset({
+    "client_id",
+    "token_status",
+    "allow_servers",
+})
+
+STATUS_SERVER_REQUIRED_FIELDS = frozenset({
+    "server_id",
+    "transport",
+    "target",
+    "available_hint",
+    "tool_policy_mode",
+    "timeouts",
+})
+
 
 class _TokenBucket:
     """In-memory token bucket rate limiter. Refills continuously. Thread-safe."""
@@ -693,6 +723,7 @@ def _build_status_payload(registry: Registry, audit_path: Path, limit: int) -> d
         )
 
     return {
+        "status_version": STATUS_VERSION,
         "service": "lmcp-v2",
         "host": registry.lmcp.host,
         "port": registry.lmcp.port,
