@@ -2,6 +2,29 @@
 
 All notable changes to LMCP are documented in this file.
 
+## v2.1.1 - 2026-03-30
+
+### Added
+- `/status` API contract: `status_version` field (currently 2), documented JSON
+  shape in `docs/status_api.md`, example payload, stability guarantee.
+- Operator state fields in `/status`: `uptime_s` (daemon uptime), `rate_limit_rpm`
+  per client (effective limit or null if unlimited).
+- `STATUS_REQUIRED_FIELDS`, `STATUS_CLIENT_REQUIRED_FIELDS`,
+  `STATUS_SERVER_REQUIRED_FIELDS` exported for contract enforcement.
+- Regression test suite: `tests/test_status_contract.py` (6 tests).
+
+### Fixed
+- Audit event timestamps: `ts` field was evaluated once at import time, causing all
+  events in the same process to share one timestamp. Now uses `field(default_factory)`.
+- Thread safety: `_TokenBucket`, `_rate_limiters` dict, and `AuditLogger.write()` are
+  now protected by locks for `ThreadingHTTPServer` concurrency.
+- POSIX permission check now includes group/other writable bits, not just readable.
+- README: `/mcp` auth example corrected (auth via query params or headers, not
+  JSON-RPC params). Header name corrected to `X-Lmcp-Client-Id`.
+- README: Quick Start path corrected from `lmcp_v2` to `LMCP`.
+
+---
+
 ## v2.1.0 - 2026-03-27
 
 ### Added

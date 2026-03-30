@@ -67,7 +67,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the rationale behind each of these de
 **1. Install dependencies**
 
 ```bash
-cd lmcp_v2
+cd LMCP
 pip install -r requirements.txt
 ```
 
@@ -281,7 +281,7 @@ The `/mcp` endpoint accepts standard MCP JSON-RPC. Authentication is via query p
 
 **Query parameters:** `?client_id=vscode&token=your-token`
 
-**Headers:** `X-Client-Id: vscode` and `X-Lmcp-Token: your-token`
+**Headers:** `X-Lmcp-Client-Id: vscode` and `X-Lmcp-Token: your-token`
 
 Supported methods:
 
@@ -292,16 +292,28 @@ Supported methods:
 ### Example: List Tools
 
 ```bash
-curl -X POST http://127.0.0.1:7345/mcp \
+curl -X POST "http://127.0.0.1:7345/mcp?client_id=vscode&token=your-token" \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
     "id": 1,
     "method": "tools/list",
-    "params": {
-      "client_id": "vscode",
-      "token": "your-token"
-    }
+    "params": {}
+  }'
+```
+
+Or with headers:
+
+```bash
+curl -X POST http://127.0.0.1:7345/mcp \
+  -H "Content-Type: application/json" \
+  -H "X-Lmcp-Client-Id: vscode" \
+  -H "X-Lmcp-Token: your-token" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/list",
+    "params": {}
   }'
 ```
 
