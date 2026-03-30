@@ -23,7 +23,7 @@ from .stdio_mcp import (
     spawn_stdio_server,
 )
 
-STATUS_VERSION = 1
+STATUS_VERSION = 2
 
 STATUS_REQUIRED_FIELDS = frozenset({
     "status_version",
@@ -31,6 +31,7 @@ STATUS_REQUIRED_FIELDS = frozenset({
     "host",
     "port",
     "loopback_only",
+    "uptime_s",
     "registry_path",
     "audit_log_path",
     "clients",
@@ -42,6 +43,7 @@ STATUS_CLIENT_REQUIRED_FIELDS = frozenset({
     "client_id",
     "token_status",
     "allow_servers",
+    "rate_limit_rpm",
 })
 
 STATUS_SERVER_REQUIRED_FIELDS = frozenset({
@@ -83,6 +85,10 @@ class LmcpDaemon:
     def __post_init__(self) -> None:
         self._rate_limiters: dict[str, _TokenBucket] = {}
         self._rate_limiters_lock = threading.Lock()
+        self._started_at = time.monotonic()
+
+    def uptime_seconds(self) -> float:
+        return round(time.monotonic() - self._started_at, 1)
 
     def check_rate_limit(self, client_id: str) -> bool:
         """Return True if request is allowed, False if rate-limited."""
@@ -301,6 +307,7 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                     registry=daemon.registry,
                     audit_path=_resolve_audit_path(daemon.registry),
                     limit=limit,
+                    daemon=daemon,
                 )
                 _json_response(self, 200, {"ok": True, "status": payload})
                 return
@@ -677,7 +684,12 @@ def _read_recent_audit_entries(audit_path: Path, limit: int) -> list[dict[str, A
     return entries
 
 
-def _build_status_payload(registry: Registry, audit_path: Path, limit: int) -> dict[str, Any]:
+def _build_status_payload(
+    registry: Registry,
+    audit_path: Path,
+    limit: int,
+    daemon: LmcpDaemon | None = None,
+) -> dict[str, Any]:
     clients = []
     for client_id, client in sorted(registry.clients.items()):
         token = client.token.strip()
@@ -693,6 +705,7 @@ def _build_status_payload(registry: Registry, audit_path: Path, limit: int) -> d
                 "client_id": client_id,
                 "token_status": token_status,
                 "allow_servers": list(client.allow_servers),
+                "rate_limit_rpm": client.rate_limit_rpm or registry.lmcp.rate_limit_rpm,
             }
         )
 
@@ -728,6 +741,7 @@ def _build_status_payload(registry: Registry, audit_path: Path, limit: int) -> d
         "host": registry.lmcp.host,
         "port": registry.lmcp.port,
         "loopback_only": registry.lmcp.loopback_only,
+        "uptime_s": daemon.uptime_seconds() if daemon else None,
         "registry_path": str(registry.path),
         "audit_log_path": str(audit_path),
         "clients": clients,
@@ -738,8 +752,10 @@ def _build_status_payload(registry: Registry, audit_path: Path, limit: int) -> d
 
 def _print_status_human(payload: dict[str, Any]) -> None:
     print("LMCP status")
+    uptime = payload.get("uptime_s")
+    uptime_str = f"  uptime: {uptime}s" if uptime is not None else ""
     print(
-        f"- service: {payload.get('service')}  host: {payload.get('host')}  port: {payload.get('port')}  loopback_only: {payload.get('loopback_only')}"
+        f"- service: {payload.get('service')}  host: {payload.get('host')}  port: {payload.get('port')}  loopback_only: {payload.get('loopback_only')}{uptime_str}"
     )
     print(f"- registry: {payload.get('registry_path')}")
     print(f"- audit_log: {payload.get('audit_log_path')}")
@@ -750,8 +766,10 @@ def _print_status_human(payload: dict[str, Any]) -> None:
         print("- none")
     for client in clients:
         allow_servers = ", ".join(client.get("allow_servers", []))
+        rpm = client.get("rate_limit_rpm")
+        rpm_str = f"  rpm={rpm}" if rpm is not None else ""
         print(
-            f"- {client.get('client_id')}  token={client.get('token_status')}  allow=[{allow_servers}]"
+            f"- {client.get('client_id')}  token={client.get('token_status')}  allow=[{allow_servers}]{rpm_str}"
         )
 
     print("\nServers:")

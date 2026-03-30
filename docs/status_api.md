@@ -10,7 +10,7 @@ The payload includes a `status_version` integer. When required fields are added,
 or their types change, `status_version` is incremented. Consumers should check this field
 and handle unknown versions gracefully.
 
-Current version: **1**
+Current version: **2**
 
 ## Endpoint
 
@@ -33,6 +33,7 @@ Returns `400 Bad Request` if `limit` is not a valid positive integer.
 | `host` | `string` | Bound host address. |
 | `port` | `int` | Bound port number. |
 | `loopback_only` | `bool` | Whether the daemon is restricted to loopback. |
+| `uptime_s` | `float\|null` | Daemon uptime in seconds. `null` when queried via CLI (no running daemon). |
 | `registry_path` | `string` | Absolute path to the loaded registry file. |
 | `audit_log_path` | `string` | Absolute path to the audit log file. |
 | `clients` | `array` | List of client objects (see below). |
@@ -48,6 +49,7 @@ Each entry in `clients`:
 | `client_id` | `string` | Unique client identifier. |
 | `token_status` | `string` | One of `"empty"`, `"placeholder"`, `"set"`. |
 | `allow_servers` | `array[string]` | Server IDs this client is permitted to reach. |
+| `rate_limit_rpm` | `int\|null` | Effective rate limit (per-client or global fallback). `null` if unlimited. |
 
 ### Server object
 
@@ -95,18 +97,20 @@ Malformed log lines appear as `{"raw": "...", "error": "invalid_json"}`.
 
 ```json
 {
-  "status_version": 1,
+  "status_version": 2,
   "service": "lmcp-v2",
   "host": "127.0.0.1",
   "port": 7345,
   "loopback_only": true,
+  "uptime_s": 3421.7,
   "registry_path": "/home/user/lmcp/config/registry.yaml",
   "audit_log_path": "/home/user/lmcp/logs/audit.log",
   "clients": [
     {
       "client_id": "vscode",
       "token_status": "set",
-      "allow_servers": ["ollama-mcp", "comfyui-mcp"]
+      "allow_servers": ["ollama-mcp", "comfyui-mcp"],
+      "rate_limit_rpm": 120
     }
   ],
   "servers": [
