@@ -16,6 +16,7 @@ class LmcpSettings:
     audit_log: str = "logs/audit.log"
     loopback_only: bool = True
     rate_limit_rpm: int | None = None
+    management_token: str | None = None
 
 
 @dataclass
@@ -123,12 +124,16 @@ def load_registry(path: str | Path) -> Registry:
     _global_rpm_raw = lmcp_raw.get("rate_limit_rpm")
     _global_rpm = int(_global_rpm_raw) if _global_rpm_raw is not None else None
 
+    _mgmt_token_raw = lmcp_raw.get("management_token")
+    _mgmt_token = str(_mgmt_token_raw) if _mgmt_token_raw else None
+
     lmcp = LmcpSettings(
         host=str(lmcp_raw.get("host", "127.0.0.1")),
         port=int(lmcp_raw.get("port", 7345)),
         audit_log=str(lmcp_raw.get("audit_log", "logs/audit.log")),
         loopback_only=bool(lmcp_raw.get("loopback_only", True)),
         rate_limit_rpm=_global_rpm,
+        management_token=_mgmt_token,
     )
 
     clients_raw = data.get("clients", {}) or {}
@@ -174,7 +179,10 @@ def _is_loopback_host(host: str) -> bool:
     return host in {"127.0.0.1", "localhost"}
 
 
-def validate_registry_data(data: dict[str, Any]) -> list[str]:
+def validate_registry_data(
+    data: dict[str, Any],
+    skip_token_validation: bool = False,
+) -> list[str]:
     errors: list[str] = []
 
     # Basic structure checks (schema-level)
@@ -198,9 +206,10 @@ def validate_registry_data(data: dict[str, Any]) -> list[str]:
     server_ids = set(servers.keys())
 
     for client_id, cfg in clients.items():
-        token = str((cfg or {}).get("token", ""))
-        if token.strip().lower().startswith("replace-me") or token.strip() == "":
-            errors.append(f"client '{client_id}' has placeholder or empty token")
+        if not skip_token_validation:
+            token = str((cfg or {}).get("token", ""))
+            if token.strip().lower().startswith("replace-me") or token.strip() == "":
+                errors.append(f"client '{client_id}' has placeholder or empty token")
         allow_servers = cfg.get("allow_servers", []) or []
         for server_id in allow_servers:
             if server_id not in server_ids:

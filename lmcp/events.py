@@ -21,6 +21,7 @@ EVENT_TYPES = frozenset({
     "tool_call",
     "tool_result",
     "server_error",
+    "config_change",
 })
 
 

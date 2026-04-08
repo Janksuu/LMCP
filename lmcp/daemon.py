@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from .audit import AuditEvent, AuditLogger
 from .config import Registry, check_registry_permissions, check_remote_mode, load_registry, registry_to_json, validate_registry_file
 from .events import BusEvent, EventBus
+from .management import check_management_auth, build_registry_view, validate_patch, apply_patch
 from .policy import authenticate_client, authorize_server
 from .http_mcp import HttpMcpError, http_call_tool, http_tools_list
 from .stdio_mcp import (
@@ -441,6 +442,16 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                     daemon.event_bus.unsubscribe(sub_id)
                 return
 
+            if path == "/registry/view":
+                mgmt_token = self.headers.get("x-lmcp-management-token")
+                allowed, err_code = check_management_auth(daemon.registry, mgmt_token)
+                if not allowed:
+                    _json_response(self, 403, {"ok": False, "error": err_code})
+                    return
+                view = build_registry_view(daemon.registry)
+                _json_response(self, 200, {"ok": True, "registry": view})
+                return
+
             if path == "/auth-check":
                 query = _extract_query(self)
                 client_id = query.get("client_id", "")
@@ -494,6 +505,52 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
         def do_POST(self) -> None:  # noqa: N802 - stdlib name
             parsed = urlparse(self.path)
             path = parsed.path.rstrip("/")
+
+            # --- Management endpoints ---
+            if path in ("/registry/validate", "/registry/apply"):
+                mgmt_token = self.headers.get("x-lmcp-management-token")
+                allowed, err_code = check_management_auth(daemon.registry, mgmt_token)
+                if not allowed:
+                    _json_response(self, 403, {"ok": False, "error": err_code})
+                    return
+                content_length = int(self.headers.get("content-length", "0"))
+                body = self.rfile.read(content_length) if content_length > 0 else b""
+                try:
+                    payload = json.loads(body.decode("utf-8") or "{}")
+                except Exception:
+                    _json_response(self, 400, {"ok": False, "error": "invalid_json"})
+                    return
+                patch = payload.get("patch")
+                if not isinstance(patch, dict):
+                    _json_response(self, 400, {"ok": False, "error": "missing_patch", "message": "Request body must include a 'patch' object."})
+                    return
+
+                if path == "/registry/validate":
+                    result = validate_patch(daemon.registry.path, patch)
+                    _json_response(self, 200, {"ok": True, **result})
+                    return
+
+                if path == "/registry/apply":
+                    result = apply_patch(
+                        registry=daemon.registry,
+                        patch=patch,
+                        audit=daemon.audit,
+                        event_bus=daemon.event_bus,
+                    )
+                    if result.get("error") == "apply_in_progress":
+                        _json_response(self, 409, {"ok": False, "error": "apply_in_progress", "message": "Another apply is in progress. Try again."})
+                        return
+                    if result.get("error") == "write_failed":
+                        _json_response(self, 500, {"ok": False, "error": "write_failed", "message": result.get("message", "Write failed.")})
+                        return
+                    # Clear rate limiters on successful apply so new RPM values take effect
+                    if result.get("applied"):
+                        with daemon._rate_limiters_lock:
+                            daemon._rate_limiters.clear()
+                    _json_response(self, 200, {"ok": True, **result})
+                    return
+
+            # --- MCP endpoint ---
             if path != "/mcp":
                 _json_response(
                     self,
