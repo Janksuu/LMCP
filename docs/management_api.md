@@ -62,9 +62,12 @@ When set but the wrong token is provided, management endpoints return
 `403` with error code `management_unauthorized`. The UI should show a
 token prompt.
 
-Management requests include the token via:
-- Header: `X-Lmcp-Management-Token: <token>`
-- Or query param: `?management_token=<token>`
+Management requests must include the token via header:
+- `X-Lmcp-Management-Token: <token>`
+
+Query-param auth is NOT supported for management endpoints. Management
+tokens in URLs would be logged by proxies and browser history, which
+defeats the purpose of a separate auth layer.
 
 ---
 
@@ -87,10 +90,12 @@ When management is disabled, `/ui` remains accessible in read-only mode
 
 ### GET /registry/view
 
-Returns the current registry in a UI-safe shape. Client tokens are
-replaced with `token_status` (empty / placeholder / set). Server configs
-include all fields (including `args`, `env`, `cwd`, `headers`,
-`stdio_mode`) so the UI can display them and patch mode can preserve them.
+Returns the current registry as an authenticated operator view. Client
+tokens are replaced with `token_status` (empty / placeholder / set).
+Server configs include all fields (including `args`, `env`, `cwd`,
+`headers`, `stdio_mode`) so the operator has full visibility and patch
+mode can preserve them. Note: `env` and `headers` may contain secrets --
+this endpoint is management-authenticated, not public.
 
 **Auth:** management token required
 
@@ -143,8 +148,6 @@ include all fields (including `args`, `env`, `cwd`, `headers`,
 
 Notes:
 - `lmcp.management_token` is never included in the response.
-- `env` and `headers` may contain secrets. The UI should display them
-  as opaque key-value pairs, not hide them.
 - /status shows live daemon state (uptime, audit entries, available_hint).
   /registry/view shows the editable config (what the file contains).
 
@@ -237,9 +240,11 @@ reloadable daemon config if validation passes.
 8. Reload reloadable daemon config (see Daemon Reload section).
    If reload fails, log warning but do NOT roll back (file is valid,
    daemon will pick up changes on next restart).
-9. Emit `config_change` audit event.
-10. Emit `config_change_denied` audit event for failed attempts.
-11. Release write lock.
+9. Emit `config_change` audit event (allowed: true).
+10. Release write lock.
+
+Failed or denied attempts also emit `config_change` with `allowed: false`
+(before releasing the lock).
 
 **Response (200, applied):**
 
