@@ -4,6 +4,7 @@ import argparse
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import queue
 import shutil
 import sys
 import threading
@@ -14,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .audit import AuditEvent, AuditLogger
 from .config import Registry, check_registry_permissions, check_remote_mode, load_registry, registry_to_json, validate_registry_file
-from .events import EventBus
+from .events import BusEvent, EventBus
 from .policy import authenticate_client, authorize_server
 from .http_mcp import HttpMcpError, http_call_tool, http_tools_list
 from .stdio_mcp import (
@@ -82,6 +83,7 @@ class _TokenBucket:
 class LmcpDaemon:
     registry: Registry
     audit: AuditLogger
+    event_bus: EventBus | None = None
 
     def __post_init__(self) -> None:
         self._rate_limiters: dict[str, _TokenBucket] = {}
@@ -394,6 +396,49 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
 </body>
 </html>"""
                 _html_response(self, 200, html)
+                return
+
+            if path == "/events":
+                if daemon.event_bus is None:
+                    _json_response(self, 503, {"ok": False, "error": "event_bus_not_available"})
+                    return
+                query = _extract_query(self)
+                event_type_filter = query.get("event_type")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self.end_headers()
+                eq: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=256)
+
+                def _on_event(event: BusEvent) -> None:
+                    try:
+                        eq.put_nowait(event.to_dict())
+                    except queue.Full:
+                        pass  # best-effort: drop if subscriber is too slow
+
+                sub_id = daemon.event_bus.subscribe(_on_event)
+                try:
+                    while True:
+                        try:
+                            payload = eq.get(timeout=30)
+                        except queue.Empty:
+                            # Send SSE comment as keepalive
+                            self.wfile.write(b": keepalive\n\n")
+                            self.wfile.flush()
+                            continue
+                        if payload is None:
+                            break
+                        if event_type_filter and payload.get("event_type") != event_type_filter:
+                            continue
+                        sse_event = payload.get("event_type", "message")
+                        sse_data = json.dumps(payload, ensure_ascii=False)
+                        self.wfile.write(f"event: {sse_event}\ndata: {sse_data}\n\n".encode())
+                        self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    pass  # client disconnected
+                finally:
+                    daemon.event_bus.unsubscribe(sub_id)
                 return
 
             if path == "/auth-check":
@@ -824,7 +869,7 @@ def run() -> int:
         print(f"WARNING: {_warn}", file=sys.stderr)
     event_bus = EventBus()
     audit = AuditLogger(_resolve_audit_path(registry), event_bus=event_bus)
-    daemon = LmcpDaemon(registry=registry, audit=audit)
+    daemon = LmcpDaemon(registry=registry, audit=audit, event_bus=event_bus)
 
     if args.print_config:
         print(registry_to_json(registry))
@@ -857,7 +902,7 @@ def run() -> int:
         host = registry.lmcp.host
         port = registry.lmcp.port
         print(f"LMCP HTTP surface starting on http://{host}:{port}")
-        print("Available endpoints: /health, /describe, /status, /ui, /auth-check, /server-check, /mcp")
+        print("Available endpoints: /health, /describe, /status, /ui, /events, /auth-check, /server-check, /mcp")
         server = ThreadingHTTPServer((host, port), _make_handler(daemon))
         try:
             server.serve_forever()
