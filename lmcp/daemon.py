@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .audit import AuditEvent, AuditLogger
 from .config import Registry, check_registry_permissions, check_remote_mode, load_registry, registry_to_json, validate_registry_file
+from .events import EventBus
 from .policy import authenticate_client, authorize_server
 from .http_mcp import HttpMcpError, http_call_tool, http_tools_list
 from .stdio_mcp import (
@@ -821,7 +822,8 @@ def run() -> int:
         print(f"WARNING: {_warn}", file=sys.stderr)
     for _warn in check_remote_mode(registry.lmcp):
         print(f"WARNING: {_warn}", file=sys.stderr)
-    audit = AuditLogger(_resolve_audit_path(registry))
+    event_bus = EventBus()
+    audit = AuditLogger(_resolve_audit_path(registry), event_bus=event_bus)
     daemon = LmcpDaemon(registry=registry, audit=audit)
 
     if args.print_config:
