@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LMCP Management</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #0d1117; color: #c9d1d9; font-size: 14px; }
+    a { color: #58a6ff; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 16px; }
+
+    /* Header */
+    .header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #161b22; border: 1px solid #30363d; border-radius: 6px; margin-bottom: 16px; }
+    .header h1 { font-size: 18px; font-weight: 600; }
+    .header .status { display: flex; gap: 12px; align-items: center; font-size: 13px; color: #8b949e; }
+    .header .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.green { background: #3fb950; }
+    .dot.gray { background: #484f58; }
+    .badge { padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+    .badge.mgmt { background: #1f6feb33; color: #58a6ff; border: 1px solid #1f6feb; }
+    .badge.readonly { background: #30363d; color: #8b949e; border: 1px solid #484f58; }
+
+    /* Auth prompt */
+    .auth-prompt { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 20px; margin-bottom: 16px; text-align: center; }
+    .auth-prompt input { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 8px 12px; border-radius: 6px; width: 300px; margin: 8px; }
+    .auth-prompt button { background: #238636; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+    .auth-prompt button:hover { background: #2ea043; }
+    .auth-info { color: #8b949e; font-size: 13px; margin-top: 8px; }
+
+    /* Panels */
+    .panel { background: #161b22; border: 1px solid #30363d; border-radius: 6px; margin-bottom: 16px; }
+    .panel-header { padding: 10px 16px; border-bottom: 1px solid #30363d; font-weight: 600; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
+    .panel-body { padding: 12px 16px; overflow-x: auto; }
+
+    /* Matrix */
+    .matrix table { border-collapse: collapse; width: 100%; }
+    .matrix th, .matrix td { padding: 6px 12px; text-align: center; border: 1px solid #21262d; font-size: 13px; }
+    .matrix th { background: #0d1117; color: #8b949e; font-weight: 500; }
+    .matrix td:first-child { text-align: left; font-weight: 500; }
+    .matrix input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #238636; }
+    .matrix input[type="checkbox"]:disabled { cursor: default; opacity: 0.4; }
+
+    /* Two-column */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } }
+
+    /* Item lists */
+    .item { padding: 8px 0; border-bottom: 1px solid #21262d; }
+    .item:last-child { border-bottom: none; }
+    .item-title { font-weight: 600; margin-bottom: 4px; }
+    .item-detail { font-size: 12px; color: #8b949e; line-height: 1.6; }
+    .item-detail span { margin-right: 12px; }
+    .token-badge { padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .token-badge.set { background: #23863633; color: #3fb950; }
+    .token-badge.placeholder { background: #d2992233; color: #d29922; }
+    .token-badge.empty { background: #f8514933; color: #f85149; }
+
+    /* Pending changes */
+    .changes-list { font-size: 13px; line-height: 1.8; }
+    .changes-list .added { color: #3fb950; }
+    .changes-list .modified { color: #d29922; }
+    .changes-list .removed { color: #f85149; }
+    .btn-row { display: flex; gap: 8px; margin-top: 8px; }
+    .btn { padding: 6px 14px; border-radius: 6px; border: 1px solid #30363d; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .btn-primary { background: #238636; color: #fff; border-color: #238636; }
+    .btn-primary:hover { background: #2ea043; }
+    .btn-secondary { background: transparent; color: #c9d1d9; }
+    .btn-secondary:hover { background: #21262d; }
+    .btn-danger { background: transparent; color: #f85149; border-color: #f85149; }
+    .btn-danger:hover { background: #f8514922; }
+    .btn:disabled { opacity: 0.4; cursor: default; }
+    .error-list { color: #f85149; font-size: 13px; margin-top: 8px; }
+
+    /* Events */
+    .events-log { max-height: 250px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.6; }
+    .events-log .row { padding: 2px 0; border-bottom: 1px solid #21262d; display: flex; gap: 8px; }
+    .events-log .ts { color: #484f58; min-width: 80px; }
+    .events-log .evt { color: #58a6ff; min-width: 110px; }
+    .events-log .client { color: #d2a8ff; min-width: 100px; }
+    .events-log .allowed-yes { color: #3fb950; }
+    .events-log .allowed-no { color: #f85149; }
+    .events-log .reason { color: #8b949e; }
+    .events-log .config-row { background: #1f6feb11; }
+
+    .empty-msg { color: #484f58; font-style: italic; padding: 12px 0; }
+    .filter-select { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>LMCP Management</h1>
+    <div class="status">
+      <span><span class="dot green" id="statusDot"></span> running</span>
+      <span id="uptimeDisplay"></span>
+      <span class="badge readonly" id="modeBadge">Read-only</span>
+    </div>
+  </div>
+
+  <!-- Auth prompt (shown when management is available but not authenticated) -->
+  <div class="auth-prompt" id="authPrompt" style="display:none;">
+    <div>Management token required</div>
+    <div><input type="password" id="mgmtTokenInput" placeholder="Management token" /></div>
+    <div><button onclick="authenticate()">Authenticate</button></div>
+    <div class="auth-info" id="authInfo"></div>
+  </div>
+
+  <!-- Management disabled info -->
+  <div class="auth-prompt" id="mgmtDisabled" style="display:none;">
+    <div class="auth-info">Management is not enabled. Set <code>management_token</code> in registry.yaml to enable editing.</div>
+  </div>
+
+  <!-- Permission Matrix -->
+  <div class="panel" id="matrixPanel" style="display:none;">
+    <div class="panel-header">Permission Matrix</div>
+    <div class="panel-body matrix" id="matrixBody"></div>
+  </div>
+
+  <!-- Two-column: Clients + Servers -->
+  <div class="two-col">
+    <div class="panel">
+      <div class="panel-header">Clients</div>
+      <div class="panel-body" id="clientsBody"><div class="empty-msg">Loading...</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">Servers</div>
+      <div class="panel-body" id="serversBody"><div class="empty-msg">Loading...</div></div>
+    </div>
+  </div>
+
+  <!-- Pending Changes -->
+  <div class="panel" id="pendingPanel" style="display:none;">
+    <div class="panel-header">Pending Changes</div>
+    <div class="panel-body">
+      <div class="changes-list" id="changesList"></div>
+      <div class="error-list" id="errorList"></div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="validateChanges()">Validate</button>
+        <button class="btn btn-primary" onclick="applyChanges()">Apply</button>
+        <button class="btn btn-danger" onclick="discardChanges()">Discard</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Live Events -->
+  <div class="panel">
+    <div class="panel-header">
+      Live Events
+      <select class="filter-select" id="eventFilter" onchange="applyEventFilter()">
+        <option value="">all</option>
+        <option value="client_auth">client_auth</option>
+        <option value="server_auth">server_auth</option>
+        <option value="rate_limited">rate_limited</option>
+        <option value="config_change">config_change</option>
+      </select>
+    </div>
+    <div class="panel-body events-log" id="eventsLog">
+      <div class="empty-msg">Waiting for events...</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// --- State ---
+let mgmtToken = sessionStorage.getItem('lmcp_mgmt_token') || '';
+let mgmtMode = false;
+let registryData = null;
+let statusData = null;
+let pendingPatch = {};
+let eventSource = null;
+let eventFilter = '';
+const MAX_EVENTS = 200;
+
+// --- Init ---
+async function init() {
+  await loadStatus();
+  await checkManagement();
+  connectSSE();
+  setInterval(() => loadStatus().catch(() => {}), 5000);
+}
+
+// --- Status ---
+async function loadStatus() {
+  try {
+    const r = await fetch('/status');
+    const d = await r.json();
+    statusData = d.status || d;
+    renderStatus();
+    if (!mgmtMode) renderReadOnlyPanels();
+  } catch(e) { console.error('status fetch failed', e); }
+}
+
+function renderStatus() {
+  if (!statusData) return;
+  const up = statusData.uptime_s;
+  document.getElementById('uptimeDisplay').textContent = up != null ? formatUptime(up) : '';
+}
+
+function formatUptime(s) {
+  if (s < 60) return Math.round(s) + 's';
+  if (s < 3600) return Math.round(s/60) + 'm';
+  return Math.round(s/3600) + 'h ' + Math.round((s%3600)/60) + 'm';
+}
+
+// --- Management check ---
+async function checkManagement() {
+  try {
+    const headers = {};
+    if (mgmtToken) headers['X-Lmcp-Management-Token'] = mgmtToken;
+    const r = await fetch('/registry/view', { headers });
+    if (r.ok) {
+      const d = await r.json();
+      registryData = d.registry;
+      mgmtMode = true;
+      document.getElementById('modeBadge').textContent = 'Management';
+      document.getElementById('modeBadge').className = 'badge mgmt';
+      document.getElementById('authPrompt').style.display = 'none';
+      document.getElementById('mgmtDisabled').style.display = 'none';
+      document.getElementById('matrixPanel').style.display = '';
+      renderManagementPanels();
+      return;
+    }
+    const d = await r.json();
+    if (d.error === 'management_disabled') {
+      document.getElementById('mgmtDisabled').style.display = '';
+      document.getElementById('authPrompt').style.display = 'none';
+    } else if (d.error === 'management_unauthorized') {
+      document.getElementById('authPrompt').style.display = '';
+      document.getElementById('mgmtDisabled').style.display = 'none';
+      if (mgmtToken) document.getElementById('authInfo').textContent = 'Invalid token.';
+    }
+  } catch(e) { console.error('management check failed', e); }
+}
+
+function authenticate() {
+  mgmtToken = document.getElementById('mgmtTokenInput').value;
+  sessionStorage.setItem('lmcp_mgmt_token', mgmtToken);
+  document.getElementById('authInfo').textContent = '';
+  checkManagement();
+}
+
+// --- Read-only panels (from /status) ---
+function renderReadOnlyPanels() {
+  if (!statusData) return;
+  const cb = document.getElementById('clientsBody');
+  const sb = document.getElementById('serversBody');
+  cb.innerHTML = (statusData.clients || []).map(c => `
+    <div class="item">
+      <div class="item-title">${esc(c.client_id)}</div>
+      <div class="item-detail">
+        <span>token: <span class="token-badge ${c.token_status}">${c.token_status}</span></span>
+        <span>servers: ${(c.allow_servers||[]).length}</span>
+        ${c.rate_limit_rpm ? '<span>rpm: '+c.rate_limit_rpm+'</span>' : ''}
+      </div>
+    </div>`).join('') || '<div class="empty-msg">No clients</div>';
+  sb.innerHTML = (statusData.servers || []).map(s => `
+    <div class="item">
+      <div class="item-title">${esc(s.server_id)}</div>
+      <div class="item-detail">
+        <span>transport: ${s.transport}</span>
+        <span>policy: ${s.tool_policy_mode}</span>
+      </div>
+    </div>`).join('') || '<div class="empty-msg">No servers</div>';
+}
+
+// --- Management panels (from /registry/view) ---
+function renderManagementPanels() {
+  if (!registryData) return;
+  renderMatrix();
+  renderClients();
+  renderServers();
+  renderPending();
+}
+
+function renderMatrix() {
+  const clients = Object.keys(registryData.clients).sort();
+  const servers = Object.keys(registryData.servers).sort();
+  if (!clients.length || !servers.length) {
+    document.getElementById('matrixBody').innerHTML = '<div class="empty-msg">Add clients and servers to see the matrix</div>';
+    return;
+  }
+  let html = '<table><tr><th></th>';
+  servers.forEach(s => { html += `<th>${esc(s)}</th>`; });
+  html += '</tr>';
+  clients.forEach(cid => {
+    const c = registryData.clients[cid];
+    const allowed = new Set(c.allow_servers || []);
+    // Check pending patch
+    const patchAllowed = pendingPatch.clients?.[cid]?.allow_servers;
+    const effectiveAllowed = patchAllowed ? new Set(patchAllowed) : allowed;
+    html += `<tr><td>${esc(cid)}</td>`;
+    servers.forEach(sid => {
+      const checked = effectiveAllowed.has(sid);
+      const changed = patchAllowed && (checked !== allowed.has(sid));
+      const style = changed ? 'style="background:#1f6feb22"' : '';
+      html += `<td ${style}><input type="checkbox" ${checked?'checked':''} onchange="togglePermission('${esc(cid)}','${esc(sid)}',this.checked)" /></td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</table>';
+  document.getElementById('matrixBody').innerHTML = html;
+}
+
+function renderClients() {
+  const cb = document.getElementById('clientsBody');
+  const clients = registryData.clients;
+  const ids = Object.keys(clients).sort();
+  cb.innerHTML = ids.map(cid => {
+    const c = clients[cid];
+    return `<div class="item">
+      <div class="item-title">${esc(cid)}</div>
+      <div class="item-detail">
+        <span>token: <span class="token-badge ${c.token_status}">${c.token_status}</span></span>
+        <span>servers: ${(c.allow_servers||[]).length}</span>
+        ${c.rate_limit_rpm ? '<span>rpm: '+c.rate_limit_rpm+'</span>' : '<span>rpm: unlimited</span>'}
+      </div>
+    </div>`;
+  }).join('') || '<div class="empty-msg">No clients</div>';
+}
+
+function renderServers() {
+  const sb = document.getElementById('serversBody');
+  const servers = registryData.servers;
+  const ids = Object.keys(servers).sort();
+  sb.innerHTML = ids.map(sid => {
+    const s = servers[sid];
+    const target = s.transport === 'stdio' ? [s.command, ...(s.args||[])].join(' ') : (s.url || '');
+    return `<div class="item">
+      <div class="item-title">${esc(sid)}</div>
+      <div class="item-detail">
+        <span>transport: ${s.transport}</span>
+        <span>policy: ${s.tool_policy.mode}</span>
+      </div>
+      <div class="item-detail">
+        <span>target: ${esc(target.substring(0,60))}${target.length>60?'...':''}</span>
+      </div>
+      ${s.timeouts ? `<div class="item-detail"><span>timeouts: init=${s.timeouts.initialize_s||'-'}s list=${s.timeouts.tools_list_s||'-'}s call=${s.timeouts.tools_call_s||'-'}s</span></div>` : ''}
+    </div>`;
+  }).join('') || '<div class="empty-msg">No servers</div>';
+}
+
+// --- Permission toggle ---
+function togglePermission(clientId, serverId, checked) {
+  if (!pendingPatch.clients) pendingPatch.clients = {};
+  if (!pendingPatch.clients[clientId]) {
+    // Start from current state
+    pendingPatch.clients[clientId] = {
+      allow_servers: [...(registryData.clients[clientId]?.allow_servers || [])]
+    };
+  }
+  const list = pendingPatch.clients[clientId].allow_servers;
+  if (checked && !list.includes(serverId)) list.push(serverId);
+  if (!checked) pendingPatch.clients[clientId].allow_servers = list.filter(s => s !== serverId);
+  renderPending();
+  renderMatrix();
+}
+
+// --- Pending changes ---
+function renderPending() {
+  const panel = document.getElementById('pendingPanel');
+  const list = document.getElementById('changesList');
+  const hasChanges = Object.keys(pendingPatch).some(k => {
+    const v = pendingPatch[k];
+    return v && typeof v === 'object' && Object.keys(v).length > 0;
+  });
+  if (!hasChanges) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+  let html = '';
+  if (pendingPatch.clients) {
+    Object.entries(pendingPatch.clients).forEach(([cid, cfg]) => {
+      if (cfg === null) {
+        html += `<div class="removed">- Remove client: ${esc(cid)}</div>`;
+      } else if (!registryData.clients[cid]) {
+        html += `<div class="added">+ Add client: ${esc(cid)}</div>`;
+      } else {
+        const changes = Object.keys(cfg).join(', ');
+        html += `<div class="modified">~ Modify client ${esc(cid)}: ${changes}</div>`;
+      }
+    });
+  }
+  if (pendingPatch.servers) {
+    Object.entries(pendingPatch.servers).forEach(([sid, cfg]) => {
+      if (cfg === null) {
+        html += `<div class="removed">- Remove server: ${esc(sid)} (cascade: removed from all client allowlists)</div>`;
+      } else if (!registryData.servers[sid]) {
+        html += `<div class="added">+ Add server: ${esc(sid)}</div>`;
+      } else {
+        const changes = Object.keys(cfg).join(', ');
+        html += `<div class="modified">~ Modify server ${esc(sid)}: ${changes}</div>`;
+      }
+    });
+  }
+  list.innerHTML = html;
+  document.getElementById('errorList').innerHTML = '';
+}
+
+async function validateChanges() {
+  try {
+    const r = await fetch('/registry/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Lmcp-Management-Token': mgmtToken },
+      body: JSON.stringify({ patch: pendingPatch }),
+    });
+    const d = await r.json();
+    const el = document.getElementById('errorList');
+    if (d.valid) {
+      el.innerHTML = '<div style="color:#3fb950">Validation passed. ' +
+        (d.changes_summary ? summarizeChanges(d.changes_summary) : '') + '</div>';
+    } else {
+      el.innerHTML = (d.errors||[]).map(e => `<div>${esc(e)}</div>`).join('');
+    }
+  } catch(e) { console.error('validate failed', e); }
+}
+
+async function applyChanges() {
+  if (!confirm('Apply pending changes to registry.yaml?')) return;
+  try {
+    const r = await fetch('/registry/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Lmcp-Management-Token': mgmtToken },
+      body: JSON.stringify({ patch: pendingPatch }),
+    });
+    const d = await r.json();
+    const el = document.getElementById('errorList');
+    if (d.applied) {
+      pendingPatch = {};
+      el.innerHTML = '<div style="color:#3fb950">Applied successfully.' +
+        (d.restart_required ? ' Restart required for some settings.' : '') + '</div>';
+      await checkManagement();
+    } else {
+      el.innerHTML = (d.errors||[]).map(e => `<div>${esc(e)}</div>`).join('') ||
+        `<div>${d.message || d.error || 'Apply failed.'}</div>`;
+    }
+  } catch(e) { console.error('apply failed', e); }
+}
+
+function discardChanges() {
+  pendingPatch = {};
+  renderPending();
+  renderMatrix();
+}
+
+function summarizeChanges(s) {
+  const parts = [];
+  if (s.clients_added?.length) parts.push('+' + s.clients_added.length + ' clients');
+  if (s.clients_modified?.length) parts.push('~' + s.clients_modified.length + ' clients');
+  if (s.clients_removed?.length) parts.push('-' + s.clients_removed.length + ' clients');
+  if (s.servers_added?.length) parts.push('+' + s.servers_added.length + ' servers');
+  if (s.servers_modified?.length) parts.push('~' + s.servers_modified.length + ' servers');
+  if (s.servers_removed?.length) parts.push('-' + s.servers_removed.length + ' servers');
+  return parts.length ? '(' + parts.join(', ') + ')' : '';
+}
+
+// --- SSE Events ---
+function connectSSE() {
+  if (eventSource) eventSource.close();
+  eventSource = new EventSource('/events');
+  eventSource.onmessage = (e) => addEvent(JSON.parse(e.data));
+  eventSource.addEventListener('client_auth', (e) => addEvent(JSON.parse(e.data)));
+  eventSource.addEventListener('server_auth', (e) => addEvent(JSON.parse(e.data)));
+  eventSource.addEventListener('rate_limited', (e) => addEvent(JSON.parse(e.data)));
+  eventSource.addEventListener('config_change', (e) => addEvent(JSON.parse(e.data)));
+  eventSource.addEventListener('tool_call', (e) => addEvent(JSON.parse(e.data)));
+  eventSource.addEventListener('tool_result', (e) => addEvent(JSON.parse(e.data)));
+  eventSource.addEventListener('server_error', (e) => addEvent(JSON.parse(e.data)));
+  eventSource.onerror = () => { setTimeout(connectSSE, 5000); };
+}
+
+function addEvent(data) {
+  const log = document.getElementById('eventsLog');
+  const type = data.event_type || 'unknown';
+  const p = data.payload || {};
+  const ts = (data.timestamp || '').split('T')[1]?.split('.')[0] || '';
+  const client = p.client_id || '';
+  const server = p.server_id || '';
+  const allowed = p.allowed;
+  const reason = p.reason || '';
+
+  // Filter
+  if (eventFilter && type !== eventFilter) return;
+
+  // Remove "waiting" message
+  const empty = log.querySelector('.empty-msg');
+  if (empty) empty.remove();
+
+  const isConfig = type === 'config_change';
+  const row = document.createElement('div');
+  row.className = 'row' + (isConfig ? ' config-row' : '');
+  row.innerHTML = `
+    <span class="ts">${esc(ts)}</span>
+    <span class="evt">${esc(type)}</span>
+    <span class="client">${esc(client)}${server ? '>'+esc(server) : ''}</span>
+    <span class="${allowed === true ? 'allowed-yes' : allowed === false ? 'allowed-no' : ''}">${allowed != null ? (allowed ? 'allowed' : 'denied') : ''}</span>
+    <span class="reason">${esc(reason)}</span>
+  `;
+  log.appendChild(row);
+
+  // Cap events
+  while (log.children.length > MAX_EVENTS) log.removeChild(log.firstChild);
+  log.scrollTop = log.scrollHeight;
+
+  // Refresh registry on config change
+  if (isConfig && allowed && mgmtMode) checkManagement();
+}
+
+function applyEventFilter() {
+  eventFilter = document.getElementById('eventFilter').value;
+}
+
+// --- Util ---
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
+// --- Start ---
+init();
+</script>
+</body>
+</html>

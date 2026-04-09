@@ -317,85 +317,12 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                 return
 
             if path == "/ui":
-                html = """<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>LMCP Status</title>
-  <style>
-    :root { color-scheme: dark; }
-    body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 24px; background: #0b0f14; color: #d9e1ea; }
-    h1 { margin: 0 0 12px; font-size: 22px; }
-    .meta { margin-bottom: 16px; color: #8ca2b8; }
-    .grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
-    @media (min-width: 1100px) { .grid { grid-template-columns: 1fr 1fr; } .wide { grid-column: 1 / span 2; } }
-    .panel { border: 1px solid #233447; border-radius: 8px; padding: 12px; background: #111923; }
-    .panel h2 { margin: 0 0 10px; font-size: 16px; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 6px 8px; border-bottom: 1px solid #1d2a38; text-align: left; vertical-align: top; font-size: 13px; }
-    th { color: #8ca2b8; font-weight: 600; }
-    .small { color: #8ca2b8; font-size: 12px; }
-  </style>
-</head>
-<body>
-  <h1>LMCP Read-Only Status</h1>
-  <div class="meta" id="meta">Loading status...</div>
-  <div class="grid">
-    <section class="panel">
-      <h2>Servers</h2>
-      <table id="servers"><thead><tr><th>Server</th><th>Transport</th><th>Available</th><th>Policy</th></tr></thead><tbody></tbody></table>
-    </section>
-    <section class="panel">
-      <h2>Clients</h2>
-      <table id="clients"><thead><tr><th>Client</th><th>Token</th><th>Allowed Servers</th></tr></thead><tbody></tbody></table>
-    </section>
-    <section class="panel wide">
-      <h2>Recent Audit</h2>
-      <table id="audit"><thead><tr><th>Timestamp</th><th>Event</th><th>Client</th><th>Server</th><th>Allowed</th><th>Reason</th></tr></thead><tbody></tbody></table>
-      <div class="small">Read-only operational view. No control actions are exposed.</div>
-    </section>
-  </div>
-  <script>
-    async function loadStatus() {
-      const response = await fetch('/status?limit=25', { cache: 'no-store' });
-      const payload = await response.json();
-      const status = payload.status || {};
-      document.getElementById('meta').textContent =
-        `service=${status.service || '?'} host=${status.host || '?'} port=${status.port || '?'} loopback_only=${status.loopback_only}`;
-
-      const serversBody = document.querySelector('#servers tbody');
-      serversBody.innerHTML = '';
-      (status.servers || []).forEach(s => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${s.server_id || ''}</td><td>${s.transport || ''}</td><td>${String(s.available_hint)}</td><td>${s.tool_policy_mode || ''}</td>`;
-        serversBody.appendChild(tr);
-      });
-
-      const clientsBody = document.querySelector('#clients tbody');
-      clientsBody.innerHTML = '';
-      (status.clients || []).forEach(c => {
-        const tr = document.createElement('tr');
-        const allow = Array.isArray(c.allow_servers) ? c.allow_servers.join(', ') : '';
-        tr.innerHTML = `<td>${c.client_id || ''}</td><td>${c.token_status || ''}</td><td>${allow}</td>`;
-        clientsBody.appendChild(tr);
-      });
-
-      const auditBody = document.querySelector('#audit tbody');
-      auditBody.innerHTML = '';
-      (status.recent_audit_entries || []).forEach(e => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${e.ts || ''}</td><td>${e.event || ''}</td><td>${e.client_id || ''}</td><td>${e.server_id || ''}</td><td>${e.allowed}</td><td>${e.reason || ''}</td>`;
-        auditBody.appendChild(tr);
-      });
-    }
-    loadStatus().catch(err => {
-      document.getElementById('meta').textContent = `status_error=${err}`;
-    });
-    setInterval(() => { loadStatus().catch(() => {}); }, 5000);
-  </script>
-</body>
-</html>"""
+                ui_path = Path(__file__).resolve().parent / "ui.html"
+                try:
+                    html = ui_path.read_text(encoding="utf-8")
+                except FileNotFoundError:
+                    _json_response(self, 500, {"ok": False, "error": "ui_file_missing"})
+                    return
                 _html_response(self, 200, html)
                 return
 
