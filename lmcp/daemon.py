@@ -885,8 +885,16 @@ def run() -> int:
     if args.serve_http:
         host = registry.lmcp.host
         port = registry.lmcp.port
+        ui_url = f"http://{host}:{port}/ui"
         print(f"LMCP HTTP surface starting on http://{host}:{port}")
         print("Available endpoints: /health, /describe, /status, /ui, /events, /auth-check, /server-check, /mcp")
+        try:
+            open_ui = input(f"Open UI in browser? ({ui_url}) [Y/n] ").strip().lower()
+        except EOFError:
+            open_ui = "n"
+        if open_ui in ("", "y", "yes"):
+            import webbrowser
+            webbrowser.open(ui_url)
         server = ThreadingHTTPServer((host, port), _make_handler(daemon))
         try:
             server.serve_forever()

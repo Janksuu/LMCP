@@ -25,12 +25,4 @@ if (-not (Test-Path $Registry)) {
 
 Write-Host "Starting LMCP..." -ForegroundColor Cyan
 Write-Host "  Registry: $Registry" -ForegroundColor DarkGray
-Write-Host "  UI: http://127.0.0.1:7345/ui" -ForegroundColor DarkGray
-
-# Open browser after a short delay (daemon needs a moment to bind)
-Start-Job -ScriptBlock {
-    Start-Sleep -Seconds 2
-    Start-Process "http://127.0.0.1:7345/ui"
-} | Out-Null
-
 python -m lmcp --registry $Registry --serve-http
