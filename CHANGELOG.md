@@ -2,6 +2,54 @@
 
 All notable changes to LMCP are documented in this file.
 
+## v3.0.0 - 2026-04-08
+
+### Added
+- **Internal event model** (`lmcp/events.py`): typed `BusEvent` with
+  `event_type`, `event_version`, `timestamp`, `payload`. Thread-safe
+  in-memory `EventBus` with subscribe/publish. Best-effort delivery.
+- **SSE endpoint** (`GET /events`): live Server-Sent Events stream from
+  the event bus. Per-client thread with bounded queue, 30s keepalive,
+  optional `?event_type=` filter. Subscriber cleanup on disconnect.
+- **Management API** (`lmcp/management.py`): three endpoints for registry
+  editing through HTTP:
+  - `GET /registry/view` -- authenticated operator view (tokens redacted)
+  - `POST /registry/validate` -- dry-run patch validation
+  - `POST /registry/apply` -- atomic backup + write + reload
+- **Management auth**: separate `management_token` in registry config,
+  header-only (`X-Lmcp-Management-Token`), disabled by default.
+- **Web management UI** (`lmcp/ui.html`): replaces the read-only dashboard.
+  Two modes: read-only (when management disabled) and full management
+  (permission matrix, client/server panels, pending changes with
+  validate/apply workflow, live SSE events). Dark theme, vanilla JS.
+- **Launcher**: `python -m lmcp` via `__main__.py`. `start_lmcp.ps1` for
+  Windows. Daemon prompts to open browser at launch.
+- **Audit-to-event wiring**: every audit write emits a `BusEvent` through
+  the event bus. `config_change` event type for management actions.
+- **Patch-only config editing**: no full replacement mode. Patches merge
+  into current config, preserving tokens for unchanged clients. Server
+  removal cascades to client allowlists.
+- **Daemon reload**: clients, servers, rate limits, and management token
+  reload without restart. Host/port/audit_log require restart (response
+  includes `restart_required: true`).
+- **Documentation**: `docs/management_api.md` (API contract),
+  `docs/web_ui.md` (UI specification), `docs/status_api.md` (updated).
+
+### Changed
+- `AuditLogger` accepts optional `EventBus` for event emission.
+- `LmcpSettings` adds `management_token` field.
+- `validate_registry_data()` adds `skip_token_validation` parameter.
+- `registry.schema.json` allows `null` for `rate_limit_rpm`, adds
+  `management_token` under `lmcp`.
+- `EVENT_TYPES` expanded: `config_change` added.
+- `/ui` now serves `lmcp/ui.html` from disk instead of inline HTML.
+- Rate limiter buckets cleared on successful config apply.
+
+### Tests
+- 38 tests across 3 test files (events: 14, management: 18, status: 6).
+
+---
+
 ## v2.1.1 - 2026-03-30
 
 ### Added
