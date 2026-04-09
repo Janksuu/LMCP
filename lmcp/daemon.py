@@ -289,7 +289,7 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                     200,
                     {
                         "ok": True,
-                        "service": "lmcp-v2",
+                        "service": "lmcp-v3",
                         "host": daemon.registry.lmcp.host,
                         "port": daemon.registry.lmcp.port,
                     },
@@ -594,7 +594,7 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="LMCP v2 daemon")
+    parser = argparse.ArgumentParser(description="LMCP v3 daemon")
     parser.add_argument(
         "--registry",
         default="config/registry.yaml",
@@ -767,7 +767,7 @@ def _build_status_payload(
 
     return {
         "status_version": STATUS_VERSION,
-        "service": "lmcp-v2",
+        "service": "lmcp-v3",
         "host": registry.lmcp.host,
         "port": registry.lmcp.port,
         "loopback_only": registry.lmcp.loopback_only,
@@ -1062,7 +1062,7 @@ def run() -> int:
             print(f"LMCP http call error: {exc}")
             return 3
 
-    print("LMCP v2 daemon")
+    print("LMCP v3 daemon")
     print(daemon.describe())
     print("Use --help for available commands.")
     return 0

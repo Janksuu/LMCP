@@ -29,7 +29,7 @@ Returns `400 Bad Request` if `limit` is not a valid positive integer.
 | Field | Type | Description |
 |-------|------|-------------|
 | `status_version` | `int` | Contract version. Incremented on breaking changes. |
-| `service` | `string` | Service identifier. Currently `"lmcp-v2"`. |
+| `service` | `string` | Service identifier. Currently `"lmcp-v3"`. |
 | `host` | `string` | Bound host address. |
 | `port` | `int` | Bound port number. |
 | `loopback_only` | `bool` | Whether the daemon is restricted to loopback. |
@@ -98,7 +98,7 @@ Malformed log lines appear as `{"raw": "...", "error": "invalid_json"}`.
 ```json
 {
   "status_version": 2,
-  "service": "lmcp-v2",
+  "service": "lmcp-v3",
   "host": "127.0.0.1",
   "port": 7345,
   "loopback_only": true,

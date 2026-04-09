@@ -107,19 +107,19 @@ servers:
 **3. Validate your configuration**
 
 ```bash
-python -m lmcp.daemon --registry config/registry.yaml --validate-registry
+python -m lmcp --registry config/registry.yaml --validate-registry
 ```
 
 **4. Start LMCP**
 
 ```bash
-python -m lmcp.daemon --registry config/registry.yaml --serve-http
+python -m lmcp --registry config/registry.yaml --serve-http
 ```
 
 **5. Verify it is running**
 
 ```bash
-python -m lmcp.daemon --registry config/registry.yaml --status
+python -m lmcp --registry config/registry.yaml --status
 ```
 
 **6. Connect your client**
@@ -241,23 +241,55 @@ Per-server control over which tools clients can call:
 
 ```bash
 # Human-readable status summary
-python -m lmcp.daemon --registry config/registry.yaml --status
+python -m lmcp --registry config/registry.yaml --status
 
 # Machine-readable status (JSON)
-python -m lmcp.daemon --registry config/registry.yaml --status-json
+python -m lmcp --registry config/registry.yaml --status-json
 ```
 
 Status output includes registered clients and their allowed servers, registered servers and transport type, per-server timeout settings, and the most recent audit log entries.
 
-### Web Status Panel (Optional)
+### Web Management UI
 
-When the daemon is running, a read-only status panel is available at:
+When the daemon is running, a management interface is available at:
 
 ```
 http://127.0.0.1:7345/ui
 ```
 
-The panel shows three views: registered servers (name, transport, status), registered clients (ID, allowed servers), and recent audit entries (timestamp, client, server, action, result). It is read-only — no actions can be taken from the UI.
+The UI has two modes:
+
+- **Read-only** (default): shows daemon status and live events. No configuration required.
+- **Management**: enables a permission matrix, client/server editors, and registry
+  editing. Requires `management_token` in the registry config.
+
+To enable management mode, add a management token to your registry:
+
+```yaml
+lmcp:
+  host: 127.0.0.1
+  port: 7345
+  management_token: "your-management-secret"
+```
+
+The daemon prompts to open the UI in your browser at launch.
+
+See [docs/web_ui.md](docs/web_ui.md) for the full UI specification and
+[docs/management_api.md](docs/management_api.md) for the API contract.
+
+### Live Events (SSE)
+
+Subscribe to real-time daemon events via Server-Sent Events:
+
+```
+GET http://127.0.0.1:7345/events
+```
+
+Events stream as they happen: client authentication, server authorization,
+rate limiting, configuration changes. Optional filter: `?event_type=client_auth`.
+
+The web UI subscribes to this automatically. External consumers can use
+any SSE client (EventSource in JS, curl, etc.).
 
 ---
 
@@ -268,11 +300,15 @@ The panel shows three views: registered servers (name, transport, status), regis
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check |
-| `/status` | GET | Daemon status (JSON) |
-| `/ui` | GET | Read-only status panel |
+| `/status` | GET | Daemon status (JSON, versioned contract) |
+| `/ui` | GET | Web management UI |
+| `/events` | GET | Live event stream (SSE) |
 | `/describe` | GET | Daemon configuration |
 | `/auth-check` | GET | Verify client credentials |
 | `/server-check` | GET | Verify server access |
+| `/registry/view` | GET | Registry config (tokens redacted, management auth) |
+| `/registry/validate` | POST | Validate a config patch (management auth) |
+| `/registry/apply` | POST | Apply a config patch (management auth) |
 | `/mcp` | POST | MCP protocol bridge |
 
 ### MCP Protocol Support
@@ -323,28 +359,28 @@ curl -X POST http://127.0.0.1:7345/mcp \
 
 ```bash
 # Start HTTP server
-python -m lmcp.daemon --registry config/registry.yaml --serve-http
+python -m lmcp --registry config/registry.yaml --serve-http
 
 # Human-readable status summary
-python -m lmcp.daemon --registry config/registry.yaml --status
+python -m lmcp --registry config/registry.yaml --status
 
 # Machine-readable status (JSON)
-python -m lmcp.daemon --registry config/registry.yaml --status-json
+python -m lmcp --registry config/registry.yaml --status-json
 
 # Validate registry configuration
-python -m lmcp.daemon --registry config/registry.yaml --validate-registry
+python -m lmcp --registry config/registry.yaml --validate-registry
 
 # Print parsed configuration
-python -m lmcp.daemon --registry config/registry.yaml --print-config
+python -m lmcp --registry config/registry.yaml --print-config
 
 # Run self-test (auth + policy checks)
-python -m lmcp.daemon --registry config/registry.yaml --self-test
+python -m lmcp --registry config/registry.yaml --self-test
 
 # Test stdio server connection
-python -m lmcp.daemon --registry config/registry.yaml --stdio-test ollama-mcp
+python -m lmcp --registry config/registry.yaml --stdio-test ollama-mcp
 
 # Test HTTP server connection
-python -m lmcp.daemon --registry config/registry.yaml --http-test comfyui-mcp
+python -m lmcp --registry config/registry.yaml --http-test comfyui-mcp
 ```
 
 ---
@@ -408,6 +444,9 @@ See [docs/requirements.md](docs/requirements.md) for full setup details.
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Design decisions, invariants, and threat model
 - [CHANGELOG.md](CHANGELOG.md) — Version history
+- [docs/status_api.md](docs/status_api.md) — /status API contract (versioned)
+- [docs/management_api.md](docs/management_api.md) — Management API contract (view/validate/apply)
+- [docs/web_ui.md](docs/web_ui.md) — Web UI specification
 - [docs/requirements.md](docs/requirements.md) — Dependencies and setup
 - [docs/testing.md](docs/testing.md) — Validation procedures
 
