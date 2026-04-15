@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hmac
 from typing import Iterable
 
 from .config import ClientConfig, ServerConfig, ToolPolicy
@@ -19,7 +20,7 @@ def authenticate_client(client: ClientConfig | None, provided_token: str | None)
         return PolicyDecision(False, "client_missing_token")
     if not provided_token:
         return PolicyDecision(False, "missing_token")
-    if client.token != provided_token:
+    if not hmac.compare_digest(client.token, provided_token):
         return PolicyDecision(False, "invalid_token")
     return PolicyDecision(True, "ok")
 

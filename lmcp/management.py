@@ -7,6 +7,7 @@ All management endpoints require a separate management_token.
 from __future__ import annotations
 
 import copy
+import hmac
 import shutil
 import threading
 from pathlib import Path
@@ -31,7 +32,7 @@ def check_management_auth(
     mgmt_token = registry.lmcp.management_token
     if not mgmt_token:
         return False, "management_disabled"
-    if token != mgmt_token:
+    if not token or not hmac.compare_digest(mgmt_token, token):
         return False, "management_unauthorized"
     return True, ""
 
