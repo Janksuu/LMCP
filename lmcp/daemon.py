@@ -26,7 +26,7 @@ from .stdio_mcp import (
     spawn_stdio_server,
 )
 
-STATUS_VERSION = 2
+STATUS_VERSION = 3
 
 STATUS_REQUIRED_FIELDS = frozenset({
     "status_version",
@@ -35,8 +35,6 @@ STATUS_REQUIRED_FIELDS = frozenset({
     "port",
     "loopback_only",
     "uptime_s",
-    "registry_path",
-    "audit_log_path",
     "clients",
     "servers",
     "recent_audit_entries",
@@ -52,7 +50,6 @@ STATUS_CLIENT_REQUIRED_FIELDS = frozenset({
 STATUS_SERVER_REQUIRED_FIELDS = frozenset({
     "server_id",
     "transport",
-    "target",
     "available_hint",
     "tool_policy_mode",
     "timeouts",
@@ -90,6 +87,10 @@ class LmcpDaemon:
         self._rate_limiters: dict[str, _TokenBucket] = {}
         self._rate_limiters_lock = threading.Lock()
         self._started_at = time.monotonic()
+        # Global rate limiter for unauthenticated probe endpoints
+        # (/auth-check, /server-check). 10 requests/minute prevents
+        # brute force and audit log flooding without blocking legitimate use.
+        self._probe_limiter = _TokenBucket(10)
 
     def uptime_seconds(self) -> float:
         return round(time.monotonic() - self._started_at, 1)
@@ -112,10 +113,9 @@ class LmcpDaemon:
         return {
             "host": self.registry.lmcp.host,
             "port": self.registry.lmcp.port,
-            "clients": list(self.registry.clients.keys()),
-            "servers": list(self.registry.servers.keys()),
+            "client_count": len(self.registry.clients),
+            "server_count": len(self.registry.servers),
             "loopback_only": self.registry.lmcp.loopback_only,
-            "registry_path": str(self.registry.path),
         }
 
     def authenticate(self, client_id: str, token: str | None) -> bool:
@@ -330,6 +330,10 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                 if daemon.event_bus is None:
                     _json_response(self, 503, {"ok": False, "error": "event_bus_not_available"})
                     return
+                _MAX_SSE_SUBSCRIBERS = 50
+                if daemon.event_bus.subscriber_count >= _MAX_SSE_SUBSCRIBERS:
+                    _json_response(self, 503, {"ok": False, "error": "too_many_subscribers", "limit": _MAX_SSE_SUBSCRIBERS})
+                    return
                 query = _extract_query(self)
                 event_type_filter = query.get("event_type")
                 self.send_response(200)
@@ -380,6 +384,9 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                 return
 
             if path == "/auth-check":
+                if not daemon._probe_limiter.allow():
+                    _json_response(self, 429, {"ok": False, "error": "rate_limited"})
+                    return
                 query = _extract_query(self)
                 client_id = query.get("client_id", "")
                 token = query.get("token")
@@ -392,6 +399,9 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                 return
 
             if path == "/server-check":
+                if not daemon._probe_limiter.allow():
+                    _json_response(self, 429, {"ok": False, "error": "rate_limited"})
+                    return
                 query = _extract_query(self)
                 client_id = query.get("client_id", "")
                 token = query.get("token")
@@ -742,17 +752,14 @@ def _build_status_payload(
     servers = []
     for server_id, server in sorted(registry.servers.items()):
         if server.transport == "stdio":
-            target = " ".join([server.command or "", *server.args]).strip()
             available_hint = _server_command_available(server.command)
         else:
-            target = server.url or ""
             available_hint = bool(server.url)
 
         servers.append(
             {
                 "server_id": server_id,
                 "transport": server.transport,
-                "target": target,
                 "available_hint": available_hint,
                 "tool_policy_mode": server.tool_policy.mode,
                 "timeouts": {
@@ -772,8 +779,6 @@ def _build_status_payload(
         "port": registry.lmcp.port,
         "loopback_only": registry.lmcp.loopback_only,
         "uptime_s": daemon.uptime_seconds() if daemon else None,
-        "registry_path": str(registry.path),
-        "audit_log_path": str(audit_path),
         "clients": clients,
         "servers": servers,
         "recent_audit_entries": _read_recent_audit_entries(audit_path, limit=limit),
@@ -787,8 +792,8 @@ def _print_status_human(payload: dict[str, Any]) -> None:
     print(
         f"- service: {payload.get('service')}  host: {payload.get('host')}  port: {payload.get('port')}  loopback_only: {payload.get('loopback_only')}{uptime_str}"
     )
-    print(f"- registry: {payload.get('registry_path')}")
-    print(f"- audit_log: {payload.get('audit_log_path')}")
+    # registry_path and audit_log_path removed from public /status for security
+    # (available through /registry/view with management auth)
 
     print("\nClients:")
     clients = payload.get("clients", []) or []
@@ -810,7 +815,7 @@ def _print_status_human(payload: dict[str, Any]) -> None:
         print(
             f"- {server.get('server_id')}  transport={server.get('transport')}  available_hint={server.get('available_hint')}  policy={server.get('tool_policy_mode')}"
         )
-        print(f"  target: {server.get('target')}")
+        # target removed from public /status for security
         timeouts = server.get("timeouts", {}) or {}
         print(
             f"  timeouts: initialize={timeouts.get('initialize_s')}s list={timeouts.get('tools_list_s')}s call={timeouts.get('tools_call_s')}s retry_on_timeout={timeouts.get('retry_on_timeout')} backoff={timeouts.get('retry_backoff_s')}s"
