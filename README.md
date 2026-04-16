@@ -407,13 +407,23 @@ In VS Code Agent mode, all servers in your LMCP registry become available throug
 
 ## Security
 
-LMCP is designed so the secure behavior is the default:
+LMCP is designed so the secure behavior is the default. The codebase has been
+through a formal security audit (v3.0.1, April 2026).
+
+### Protections
 
 - **Loopback only** — Binds to `127.0.0.1` unless explicitly configured otherwise
 - **Token authentication** — Every client requires a valid token; no anonymous access
+- **Constant-time token comparison** — `hmac.compare_digest` prevents timing attacks
 - **Server allowlists** — Clients access only servers they are explicitly granted
 - **Tool policies** — Per-server control over which tools are reachable
 - **Audit logging** — Every authentication and authorization decision is recorded
+- **Probe rate limiting** — `/auth-check` and `/server-check` throttled at 10 rpm to prevent brute force
+- **Request size limits** — POST bodies capped at 1 MB
+- **SSE subscriber cap** — Max 50 concurrent `/events` connections
+- **XSS prevention** — All user-controlled values escaped; no inline JS handlers
+- **Management auth** — Registry editing requires a separate management token (header-only, disabled by default)
+- **Minimal public disclosure** — Public endpoints do not expose client IDs, server commands, or file paths
 
 ### What LMCP Does NOT Do
 
@@ -424,6 +434,8 @@ LMCP is designed so the secure behavior is the default:
 - No intent inference
 
 LMCP is access control infrastructure. It is not an AI system.
+
+See [SECURITY.md](SECURITY.md) for the full security model, accepted risks, and audit history.
 
 ---
 
