@@ -2,6 +2,30 @@
 
 All notable changes to LMCP are documented in this file.
 
+## v3.0.1 - 2026-04-15
+
+### Security
+- **Probe rate limiting**: `/auth-check` and `/server-check` now rate-limited
+  at 10 rpm. Prevents brute force token enumeration and audit log flooding.
+- **SSE subscriber cap**: max 50 concurrent `/events` connections. Returns
+  503 when full. Prevents memory exhaustion.
+- **Constant-time token comparison**: client and management token checks
+  use `hmac.compare_digest()` instead of `==`. Prevents timing side-channel.
+- **XSS fix**: `esc()` in management UI now escapes single and double quotes.
+  Prevents attribute injection via crafted client/server IDs.
+- **Information disclosure reduction**: `/describe` no longer exposes client
+  IDs, server IDs, or registry path (now shows counts only). `/status` no
+  longer exposes `registry_path`, `audit_log_path`, or server `target`
+  (command line). These are available through `/registry/view` with
+  management auth.
+- **Backup files gitignored**: `config/*.bak` added to `.gitignore`.
+
+### Added
+- `SECURITY.md`: security model, accepted risks, audit history, configuration guide.
+- `STATUS_VERSION` bumped to 3 (fields removed from public `/status`).
+
+---
+
 ## v3.0.0 - 2026-04-08
 
 ### Added

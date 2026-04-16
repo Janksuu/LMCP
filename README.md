@@ -443,6 +443,7 @@ See [docs/requirements.md](docs/requirements.md) for full setup details.
 ## Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Design decisions, invariants, and threat model
+- [SECURITY.md](SECURITY.md) — Security model, audit history, and accepted risks
 - [CHANGELOG.md](CHANGELOG.md) — Version history
 - [docs/status_api.md](docs/status_api.md) — /status API contract (versioned)
 - [docs/management_api.md](docs/management_api.md) — Management API contract (view/validate/apply)

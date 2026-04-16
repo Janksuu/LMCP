@@ -519,7 +519,7 @@ function esc(s) {
   if (!s) return '';
   const d = document.createElement('div');
   d.textContent = String(s);
-  return d.innerHTML;
+  return d.innerHTML.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
 }
 
 // --- Start ---
