@@ -27,6 +27,7 @@ from .stdio_mcp import (
 )
 
 STATUS_VERSION = 3
+_MAX_REQUEST_BODY = 1_048_576  # 1 MB max POST body
 
 STATUS_REQUIRED_FIELDS = frozenset({
     "status_version",
@@ -331,16 +332,8 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                     _json_response(self, 503, {"ok": False, "error": "event_bus_not_available"})
                     return
                 _MAX_SSE_SUBSCRIBERS = 50
-                if daemon.event_bus.subscriber_count >= _MAX_SSE_SUBSCRIBERS:
-                    _json_response(self, 503, {"ok": False, "error": "too_many_subscribers", "limit": _MAX_SSE_SUBSCRIBERS})
-                    return
                 query = _extract_query(self)
                 event_type_filter = query.get("event_type")
-                self.send_response(200)
-                self.send_header("Content-Type", "text/event-stream")
-                self.send_header("Cache-Control", "no-cache")
-                self.send_header("Connection", "keep-alive")
-                self.end_headers()
                 eq: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=256)
 
                 def _on_event(event: BusEvent) -> None:
@@ -349,7 +342,16 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                     except queue.Full:
                         pass  # best-effort: drop if subscriber is too slow
 
-                sub_id = daemon.event_bus.subscribe(_on_event)
+                # Atomic check-and-subscribe to prevent race past the cap
+                sub_id = daemon.event_bus.try_subscribe(_on_event, _MAX_SSE_SUBSCRIBERS)
+                if sub_id is None:
+                    _json_response(self, 503, {"ok": False, "error": "too_many_subscribers", "limit": _MAX_SSE_SUBSCRIBERS})
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self.end_headers()
                 try:
                     while True:
                         try:
@@ -451,6 +453,9 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                     _json_response(self, 403, {"ok": False, "error": err_code})
                     return
                 content_length = int(self.headers.get("content-length", "0"))
+                if content_length > _MAX_REQUEST_BODY:
+                    _json_response(self, 413, {"ok": False, "error": "request_too_large", "max_bytes": _MAX_REQUEST_BODY})
+                    return
                 body = self.rfile.read(content_length) if content_length > 0 else b""
                 try:
                     payload = json.loads(body.decode("utf-8") or "{}")
@@ -497,6 +502,9 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                 return
 
             content_length = int(self.headers.get("content-length", "0"))
+            if content_length > _MAX_REQUEST_BODY:
+                _json_response(self, 413, {"error": "request_too_large", "max_bytes": _MAX_REQUEST_BODY})
+                return
             body = self.rfile.read(content_length) if content_length > 0 else b""
             try:
                 request_payload = json.loads(body.decode("utf-8") or "{}")

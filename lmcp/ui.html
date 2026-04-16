@@ -297,12 +297,18 @@ function renderMatrix() {
       const checked = effectiveAllowed.has(sid);
       const changed = patchAllowed && (checked !== allowed.has(sid));
       const style = changed ? 'style="background:#1f6feb22"' : '';
-      html += `<td ${style}><input type="checkbox" ${checked?'checked':''} onchange="togglePermission('${esc(cid)}','${esc(sid)}',this.checked)" /></td>`;
+      html += `<td ${style}><input type="checkbox" ${checked?'checked':''} data-client="${esc(cid)}" data-server="${esc(sid)}" class="perm-toggle" /></td>`;
     });
     html += '</tr>';
   });
   html += '</table>';
   document.getElementById('matrixBody').innerHTML = html;
+  // Bind events via DOM instead of inline handlers (prevents XSS via attribute injection)
+  document.querySelectorAll('.perm-toggle').forEach(cb => {
+    cb.addEventListener('change', function() {
+      togglePermission(this.dataset.client, this.dataset.server, this.checked);
+    });
+  });
 }
 
 function renderClients() {

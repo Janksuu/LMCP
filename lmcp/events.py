@@ -68,6 +68,16 @@ class EventBus:
             self._subscribers[sub_id] = callback
         return sub_id
 
+    def try_subscribe(self, callback: Subscriber, max_subscribers: int) -> int | None:
+        """Atomically check count and subscribe. Returns ID or None if at cap."""
+        with self._lock:
+            if len(self._subscribers) >= max_subscribers:
+                return None
+            sub_id = self._next_id
+            self._next_id += 1
+            self._subscribers[sub_id] = callback
+        return sub_id
+
     def unsubscribe(self, sub_id: int) -> None:
         """Remove a subscriber by ID. No-op if already removed."""
         with self._lock:

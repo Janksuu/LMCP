@@ -40,6 +40,7 @@ config/logs/
 
 # Local configuration (users should create their own from registry.example.yaml)
 config/registry*.yaml
+config/test_*.yaml
 config/*.bak
 !config/registry.example.yaml
 
