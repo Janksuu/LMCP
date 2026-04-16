@@ -2,6 +2,40 @@
 
 All notable changes to LMCP are documented in this file.
 
+## v3.0.2 - 2026-04-16
+
+### Fixed
+- **Deep-merge patches**: nested fields in client/server patches now merge
+  recursively instead of clobbering. Patching `tool_policy.allow_tools`
+  preserves `mode` and `deny_tools`. Patching one timeout field preserves
+  the others. (Previously, a partial patch could silently lose policy
+  fields.)
+- **Reload failure surfaced**: when the on-disk write succeeds but the
+  in-memory reload fails, `apply` now returns `reload_failed: true` with
+  a warning and audits the failure. Previously the error was silently
+  swallowed and operators had no signal that auth was broken.
+- **Backup/write failures audited**: `config_change` events with
+  `allowed: false` are now emitted on backup-failure and write-failure
+  paths. Previously only validation failures were audited.
+- **Subprocess spawn amplification**: `tools/list` now caches per-server
+  results for 30 seconds. An authenticated client can no longer DoS the
+  host by spawning N subprocesses per request. Cache is invalidated on
+  config apply.
+- **tools/list crash on concurrent reload**: replaced direct dict subscript
+  with `.get()`. If a client is removed between authenticate and tools/list
+  by a concurrent apply, the handler returns 401 instead of 500.
+- **Malformed Content-Length**: handlers now return 400 `invalid_content_length`
+  instead of crashing with 500 when the header is non-integer or negative.
+- **UI defense-in-depth XSS**: status fields (`token_status`, `transport`,
+  `tool_policy_mode`, `rate_limit_rpm`, timeout values) now go through
+  `esc()` before interpolation. Not currently exploitable, but removes
+  reliance on server-side type contracts.
+
+### Added
+- 2 regression tests for deep-merge patch behavior (40/40 tests passing).
+
+---
+
 ## v3.0.1 - 2026-04-15
 
 ### Security

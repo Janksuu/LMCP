@@ -92,6 +92,34 @@ class LmcpDaemon:
         # (/auth-check, /server-check). 10 requests/minute prevents
         # brute force and audit log flooding without blocking legitimate use.
         self._probe_limiter = _TokenBucket(10)
+        # Short-lived tools/list cache per server_id. Prevents authenticated
+        # tools/list spam from spawning N subprocesses per request. TTL of
+        # 30 seconds balances freshness with DoS protection.
+        self._tools_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+        self._tools_cache_lock = threading.Lock()
+        self._tools_cache_ttl_s = 30.0
+
+    def get_cached_tools(self, server_id: str) -> list[dict[str, Any]] | None:
+        """Return cached tools list for a server if still fresh, else None."""
+        with self._tools_cache_lock:
+            entry = self._tools_cache.get(server_id)
+            if entry is None:
+                return None
+            ts, tools = entry
+            if time.monotonic() - ts > self._tools_cache_ttl_s:
+                self._tools_cache.pop(server_id, None)
+                return None
+            return tools
+
+    def set_cached_tools(self, server_id: str, tools: list[dict[str, Any]]) -> None:
+        """Store tools list for a server with current timestamp."""
+        with self._tools_cache_lock:
+            self._tools_cache[server_id] = (time.monotonic(), tools)
+
+    def invalidate_tools_cache(self) -> None:
+        """Clear the tools cache. Called on config apply."""
+        with self._tools_cache_lock:
+            self._tools_cache.clear()
 
     def uptime_seconds(self) -> float:
         return round(time.monotonic() - self._started_at, 1)
@@ -187,6 +215,18 @@ def _extract_query(handler: BaseHTTPRequestHandler) -> dict[str, str]:
     return result
 
 
+def _parse_content_length(handler: BaseHTTPRequestHandler) -> int | None:
+    """Parse Content-Length header. Returns None if malformed or negative."""
+    raw = handler.headers.get("content-length", "0")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if value < 0:
+        return None
+    return value
+
+
 def _extract_auth(handler: BaseHTTPRequestHandler) -> tuple[str | None, str | None]:
     query = _extract_query(handler)
     client_id = query.get("client_id")
@@ -241,6 +281,11 @@ def _collect_tools_for_server(daemon: LmcpDaemon, server_id: str) -> list[dict[s
     server = daemon.registry.servers.get(server_id)
     if not server:
         return []
+    # Return cached tools if fresh. Cache is invalidated on config apply.
+    cached = daemon.get_cached_tools(server_id)
+    if cached is not None:
+        return cached
+    tools: list[dict[str, Any]] = []
     if server.transport == "http":
         try:
             result = http_tools_list(
@@ -249,10 +294,10 @@ def _collect_tools_for_server(daemon: LmcpDaemon, server_id: str) -> list[dict[s
                 retry_on_timeout=_server_retry_on_timeout(server),
                 retry_backoff_s=_server_retry_backoff_seconds(server),
             )
-            return result.get("result", {}).get("tools", []) or []
+            tools = result.get("result", {}).get("tools", []) or []
         except HttpMcpError:
             return []
-    if server.transport == "stdio":
+    elif server.transport == "stdio":
         try:
             session = spawn_stdio_server(server)
         except FileNotFoundError:
@@ -267,12 +312,16 @@ def _collect_tools_for_server(daemon: LmcpDaemon, server_id: str) -> list[dict[s
                 retry_on_timeout=_server_retry_on_timeout(server),
                 retry_backoff_s=_server_retry_backoff_seconds(server),
             )
-            return result.get("tools_list", {}).get("result", {}).get("tools", []) or []
+            tools = result.get("tools_list", {}).get("result", {}).get("tools", []) or []
         except Exception:
             return []
         finally:
             session.close()
-    return []
+    else:
+        return []
+    # Cache successful results only (empty list from error is not cached above)
+    daemon.set_cached_tools(server_id, tools)
+    return tools
 
 
 def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
@@ -452,7 +501,10 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                 if not allowed:
                     _json_response(self, 403, {"ok": False, "error": err_code})
                     return
-                content_length = int(self.headers.get("content-length", "0"))
+                content_length = _parse_content_length(self)
+                if content_length is None:
+                    _json_response(self, 400, {"ok": False, "error": "invalid_content_length"})
+                    return
                 if content_length > _MAX_REQUEST_BODY:
                     _json_response(self, 413, {"ok": False, "error": "request_too_large", "max_bytes": _MAX_REQUEST_BODY})
                     return
@@ -485,10 +537,12 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                     if result.get("error") == "write_failed":
                         _json_response(self, 500, {"ok": False, "error": "write_failed", "message": result.get("message", "Write failed.")})
                         return
-                    # Clear rate limiters on successful apply so new RPM values take effect
+                    # On successful apply, clear rate limiters (new RPM values)
+                    # and invalidate tools cache (server list may have changed).
                     if result.get("applied"):
                         with daemon._rate_limiters_lock:
                             daemon._rate_limiters.clear()
+                        daemon.invalidate_tools_cache()
                     _json_response(self, 200, {"ok": True, **result})
                     return
 
@@ -501,7 +555,10 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                 )
                 return
 
-            content_length = int(self.headers.get("content-length", "0"))
+            content_length = _parse_content_length(self)
+            if content_length is None:
+                _json_response(self, 400, {"error": "invalid_content_length"})
+                return
             if content_length > _MAX_REQUEST_BODY:
                 _json_response(self, 413, {"error": "request_too_large", "max_bytes": _MAX_REQUEST_BODY})
                 return
@@ -544,7 +601,13 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
 
             if method == "tools/list":
                 tools: list[dict[str, Any]] = []
-                for server_id in daemon.registry.clients[client_id].allow_servers:
+                # Use .get() in case the client was removed by a concurrent
+                # config apply between authenticate() and this lookup.
+                client_cfg = daemon.registry.clients.get(client_id)
+                if client_cfg is None:
+                    _mcp_error(self, request_id, -32001, "unauthorized")
+                    return
+                for server_id in client_cfg.allow_servers:
                     for tool in _collect_tools_for_server(daemon, server_id):
                         tool_name = tool.get("name")
                         if not tool_name:

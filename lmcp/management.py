@@ -100,31 +100,44 @@ def _read_current_yaml(registry_path: Path) -> dict[str, Any]:
     return yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
 
 
+def _deep_merge_entry(current: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    """Deep-merge patch into current dict entry. Dicts merge recursively,
+    lists and scalars replace. Used for per-client and per-server updates
+    so a partial patch (e.g. tool_policy.allow_tools) does not clobber
+    unrelated fields (e.g. tool_policy.mode)."""
+    result = copy.deepcopy(current)
+    for k, v in patch.items():
+        if isinstance(v, dict) and isinstance(result.get(k), dict):
+            result[k] = _deep_merge_entry(result[k], v)
+        else:
+            result[k] = copy.deepcopy(v)
+    return result
+
+
 def _merge_patch(current: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     """Merge a patch into the current config. Returns a new dict."""
     merged = copy.deepcopy(current)
 
-    # Merge lmcp settings
+    # Merge lmcp settings (flat scalar fields, shallow overwrite is correct)
     if "lmcp" in patch:
         merged_lmcp = merged.get("lmcp", {}) or {}
         for k, v in patch["lmcp"].items():
             merged_lmcp[k] = v
         merged["lmcp"] = merged_lmcp
 
-    # Merge clients
+    # Merge clients (deep merge per-client so nested fields are preserved)
     if "clients" in patch:
         merged_clients = merged.get("clients", {}) or {}
         for cid, cfg in patch["clients"].items():
             if cfg is None:
                 merged_clients.pop(cid, None)
             elif cid in merged_clients:
-                for k, v in cfg.items():
-                    merged_clients[cid][k] = v
+                merged_clients[cid] = _deep_merge_entry(merged_clients[cid], cfg)
             else:
-                merged_clients[cid] = cfg
+                merged_clients[cid] = copy.deepcopy(cfg)
         merged["clients"] = merged_clients
 
-    # Merge servers (with cascade delete)
+    # Merge servers (deep merge + cascade delete)
     if "servers" in patch:
         merged_servers = merged.get("servers", {}) or {}
         removed_servers = set()
@@ -133,10 +146,9 @@ def _merge_patch(current: dict[str, Any], patch: dict[str, Any]) -> dict[str, An
                 merged_servers.pop(sid, None)
                 removed_servers.add(sid)
             elif sid in merged_servers:
-                for k, v in cfg.items():
-                    merged_servers[sid][k] = v
+                merged_servers[sid] = _deep_merge_entry(merged_servers[sid], cfg)
             else:
-                merged_servers[sid] = cfg
+                merged_servers[sid] = copy.deepcopy(cfg)
         merged["servers"] = merged_servers
 
         # Cascade: remove deleted servers from all client allow_servers
@@ -243,7 +255,13 @@ def apply_patch(
         backup_path = str(registry_path) + ".bak"
         try:
             shutil.copy2(str(registry_path), backup_path)
-        except OSError:
+        except OSError as exc:
+            audit.write(AuditEvent(
+                event="config_change",
+                allowed=False,
+                reason="backup_failed",
+                detail={"error": str(exc)},
+            ))
             return {
                 "applied": False,
                 "error": "write_failed",
@@ -255,35 +273,57 @@ def apply_patch(
             import yaml  # type: ignore
             yaml_str = yaml.dump(merged, default_flow_style=False, allow_unicode=True)
             registry_path.write_text(yaml_str, encoding="utf-8")
-        except Exception:
-            # Attempt restore
+        except Exception as exc:
+            # Attempt restore from backup
+            restore_ok = True
             try:
                 shutil.copy2(backup_path, str(registry_path))
             except OSError:
-                pass
+                restore_ok = False
+            audit.write(AuditEvent(
+                event="config_change",
+                allowed=False,
+                reason="write_failed",
+                detail={"error": str(exc), "restore_ok": restore_ok},
+            ))
             return {
                 "applied": False,
                 "error": "write_failed",
-                "message": "Failed to write registry. Previous config preserved.",
+                "message": "Failed to write registry. Previous config preserved."
+                if restore_ok else "Failed to write registry AND failed to restore backup. Manual recovery required.",
             }
 
-        # Reload reloadable config
+        # Reload reloadable config (atomic swap: build new state first, swap at end)
+        reload_ok = True
+        reload_error: str | None = None
         try:
             from .config import load_registry
             new_registry = load_registry(registry_path)
-            registry.clients = new_registry.clients
-            registry.servers = new_registry.servers
-            registry.lmcp.rate_limit_rpm = new_registry.lmcp.rate_limit_rpm
-            registry.lmcp.management_token = new_registry.lmcp.management_token
-        except Exception:
-            pass  # file is valid, daemon picks up on restart
+            # Apply all reloadable fields. Individual attribute assignments are
+            # atomic under CPython's GIL, but between them a request thread can
+            # observe a partial state. We minimize the window by preparing the
+            # new state first and then assigning in quick succession.
+            new_clients = new_registry.clients
+            new_servers = new_registry.servers
+            new_rpm = new_registry.lmcp.rate_limit_rpm
+            new_mgmt = new_registry.lmcp.management_token
+            registry.clients = new_clients
+            registry.servers = new_servers
+            registry.lmcp.rate_limit_rpm = new_rpm
+            registry.lmcp.management_token = new_mgmt
+        except Exception as exc:
+            reload_ok = False
+            reload_error = str(exc)
 
-        # Audit
+        # Audit (always, whether reload succeeded or not)
+        audit_detail: dict[str, Any] = {**changes, "backup_path": backup_path}
+        if not reload_ok:
+            audit_detail["reload_error"] = reload_error
         audit.write(AuditEvent(
             event="config_change",
             allowed=True,
-            reason="management_apply",
-            detail={**changes, "backup_path": backup_path},
+            reason="management_apply" if reload_ok else "management_apply_reload_failed",
+            detail=audit_detail,
         ))
 
         result: dict[str, Any] = {
@@ -294,6 +334,10 @@ def apply_patch(
         }
         if restart_required:
             result["restart_required"] = True
+        if not reload_ok:
+            result["reload_failed"] = True
+            result["reload_error"] = reload_error
+            result["warning"] = "File written but in-memory reload failed. Restart the daemon to pick up changes."
         return result
 
     finally:

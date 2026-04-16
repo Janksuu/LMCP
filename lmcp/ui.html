@@ -252,17 +252,17 @@ function renderReadOnlyPanels() {
     <div class="item">
       <div class="item-title">${esc(c.client_id)}</div>
       <div class="item-detail">
-        <span>token: <span class="token-badge ${c.token_status}">${c.token_status}</span></span>
+        <span>token: <span class="token-badge ${esc(c.token_status)}">${esc(c.token_status)}</span></span>
         <span>servers: ${(c.allow_servers||[]).length}</span>
-        ${c.rate_limit_rpm ? '<span>rpm: '+c.rate_limit_rpm+'</span>' : ''}
+        ${c.rate_limit_rpm ? '<span>rpm: '+esc(c.rate_limit_rpm)+'</span>' : ''}
       </div>
     </div>`).join('') || '<div class="empty-msg">No clients</div>';
   sb.innerHTML = (statusData.servers || []).map(s => `
     <div class="item">
       <div class="item-title">${esc(s.server_id)}</div>
       <div class="item-detail">
-        <span>transport: ${s.transport}</span>
-        <span>policy: ${s.tool_policy_mode}</span>
+        <span>transport: ${esc(s.transport)}</span>
+        <span>policy: ${esc(s.tool_policy_mode)}</span>
       </div>
     </div>`).join('') || '<div class="empty-msg">No servers</div>';
 }
@@ -320,9 +320,9 @@ function renderClients() {
     return `<div class="item">
       <div class="item-title">${esc(cid)}</div>
       <div class="item-detail">
-        <span>token: <span class="token-badge ${c.token_status}">${c.token_status}</span></span>
+        <span>token: <span class="token-badge ${esc(c.token_status)}">${esc(c.token_status)}</span></span>
         <span>servers: ${(c.allow_servers||[]).length}</span>
-        ${c.rate_limit_rpm ? '<span>rpm: '+c.rate_limit_rpm+'</span>' : '<span>rpm: unlimited</span>'}
+        ${c.rate_limit_rpm ? '<span>rpm: '+esc(c.rate_limit_rpm)+'</span>' : '<span>rpm: unlimited</span>'}
       </div>
     </div>`;
   }).join('') || '<div class="empty-msg">No clients</div>';
@@ -338,13 +338,13 @@ function renderServers() {
     return `<div class="item">
       <div class="item-title">${esc(sid)}</div>
       <div class="item-detail">
-        <span>transport: ${s.transport}</span>
-        <span>policy: ${s.tool_policy.mode}</span>
+        <span>transport: ${esc(s.transport)}</span>
+        <span>policy: ${esc(s.tool_policy.mode)}</span>
       </div>
       <div class="item-detail">
         <span>target: ${esc(target.substring(0,60))}${target.length>60?'...':''}</span>
       </div>
-      ${s.timeouts ? `<div class="item-detail"><span>timeouts: init=${s.timeouts.initialize_s||'-'}s list=${s.timeouts.tools_list_s||'-'}s call=${s.timeouts.tools_call_s||'-'}s</span></div>` : ''}
+      ${s.timeouts ? `<div class="item-detail"><span>timeouts: init=${esc(s.timeouts.initialize_s||'-')}s list=${esc(s.timeouts.tools_list_s||'-')}s call=${esc(s.timeouts.tools_call_s||'-')}s</span></div>` : ''}
     </div>`;
   }).join('') || '<div class="empty-msg">No servers</div>';
 }

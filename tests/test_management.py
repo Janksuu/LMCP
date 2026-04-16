@@ -175,6 +175,58 @@ def test_merge_patch_updates_field() -> None:
     assert merged["clients"]["a"]["token"] == "x"  # preserved
 
 
+def test_merge_patch_deep_merges_nested_dicts() -> None:
+    """Regression: shallow merge would clobber unrelated nested fields.
+    Patching tool_policy.allow_tools must preserve tool_policy.mode."""
+    current = {
+        "clients": {},
+        "servers": {
+            "s1": {
+                "transport": "stdio",
+                "tool_policy": {
+                    "mode": "allow_list",
+                    "allow_tools": ["old_tool"],
+                    "deny_tools": ["bad_tool"],
+                },
+            },
+        },
+    }
+    patch = {"servers": {"s1": {"tool_policy": {"allow_tools": ["new_tool"]}}}}
+    merged = _merge_patch(current, patch)
+    # allow_tools replaced
+    assert merged["servers"]["s1"]["tool_policy"]["allow_tools"] == ["new_tool"]
+    # mode preserved (not clobbered)
+    assert merged["servers"]["s1"]["tool_policy"]["mode"] == "allow_list"
+    # deny_tools preserved (not clobbered)
+    assert merged["servers"]["s1"]["tool_policy"]["deny_tools"] == ["bad_tool"]
+    # transport preserved
+    assert merged["servers"]["s1"]["transport"] == "stdio"
+
+
+def test_merge_patch_deep_merges_timeouts() -> None:
+    """Patching one timeout field must preserve the others."""
+    current = {
+        "clients": {},
+        "servers": {
+            "s1": {
+                "transport": "stdio",
+                "timeouts": {
+                    "initialize_s": 30,
+                    "tools_list_s": 30,
+                    "tools_call_s": 300,
+                    "retry_on_timeout": 1,
+                },
+            },
+        },
+    }
+    patch = {"servers": {"s1": {"timeouts": {"tools_call_s": 600}}}}
+    merged = _merge_patch(current, patch)
+    assert merged["servers"]["s1"]["timeouts"]["tools_call_s"] == 600
+    assert merged["servers"]["s1"]["timeouts"]["initialize_s"] == 30
+    assert merged["servers"]["s1"]["timeouts"]["tools_list_s"] == 30
+    assert merged["servers"]["s1"]["timeouts"]["retry_on_timeout"] == 1
+
+
 # --- Changes ---
 
 def test_compute_changes_detects_add() -> None:
