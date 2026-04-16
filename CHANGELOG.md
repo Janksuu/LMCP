@@ -32,7 +32,11 @@ All notable changes to LMCP are documented in this file.
   reliance on server-side type contracts.
 
 ### Added
-- 2 regression tests for deep-merge patch behavior (40/40 tests passing).
+- 14 regression tests total for v3.0.2 fixes (52/52 tests passing):
+  - 2 for deep-merge patch behavior
+  - 2 for reload-failure and backup-failure handling
+  - 4 for tools cache (hit, miss, TTL expiry, invalidation)
+  - 6 for Content-Length parsing (valid, zero, missing, malformed, negative, empty)
 
 ---
 

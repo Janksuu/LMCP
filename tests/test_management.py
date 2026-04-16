@@ -331,3 +331,81 @@ def test_apply_restart_required() -> None:
         )
         assert result["applied"] is True
         assert result.get("restart_required") is True
+
+
+def test_apply_reload_failure_surfaced(monkeypatch) -> None:
+    """Regression: if in-memory reload fails after successful file write,
+    apply_patch must return applied=true + reload_failed=true with a warning
+    and emit an audit event with reload_error. Previously the failure was
+    silently swallowed."""
+    import lmcp.management as mgmt
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        reg = _make_registry(tmp)
+        bus = EventBus()
+        received: list[BusEvent] = []
+        bus.subscribe(lambda e: received.append(e))
+        audit = AuditLogger(tmp / "audit.log", event_bus=bus)
+
+        # Force the reload step to fail by monkeypatching load_registry to raise.
+        # This exercises the new reload-failure handling path.
+        def _boom(path):
+            raise RuntimeError("simulated reload failure")
+
+        monkeypatch.setattr("lmcp.config.load_registry", _boom)
+
+        result = apply_patch(
+            registry=reg,
+            patch={"clients": {"vscode": {"allow_servers": []}}},
+            audit=audit,
+            event_bus=bus,
+        )
+
+        # File write succeeded, so applied is true
+        assert result["applied"] is True
+        # But reload failed, so the new fields are set
+        assert result.get("reload_failed") is True
+        assert "reload_error" in result
+        assert "warning" in result
+        # Audit event records the reload failure
+        config_events = [e for e in received if e.event_type == "config_change"]
+        assert len(config_events) >= 1
+        assert config_events[-1].payload.get("reason") == "management_apply_reload_failed"
+        assert "reload_error" in config_events[-1].payload.get("detail", {})
+
+
+def test_apply_backup_failure_audited(monkeypatch) -> None:
+    """Regression: backup failure must emit a config_change audit event with
+    allowed=false. Previously only validation failures were audited."""
+    import shutil as shutil_mod
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        reg = _make_registry(tmp)
+        bus = EventBus()
+        received: list[BusEvent] = []
+        bus.subscribe(lambda e: received.append(e))
+        audit = AuditLogger(tmp / "audit.log", event_bus=bus)
+
+        # Force backup to fail
+        def _boom(src, dst):
+            raise OSError("simulated backup failure")
+
+        monkeypatch.setattr(shutil_mod, "copy2", _boom)
+
+        result = apply_patch(
+            registry=reg,
+            patch={"clients": {"vscode": {"allow_servers": []}}},
+            audit=audit,
+            event_bus=bus,
+        )
+
+        assert result["applied"] is False
+        assert result.get("error") == "write_failed"
+        # Audit event recorded the backup failure
+        config_events = [e for e in received if e.event_type == "config_change"]
+        assert len(config_events) >= 1
+        last = config_events[-1]
+        assert last.payload.get("allowed") is False
+        assert last.payload.get("reason") == "backup_failed"

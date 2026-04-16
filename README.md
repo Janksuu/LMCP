@@ -408,7 +408,7 @@ In VS Code Agent mode, all servers in your LMCP registry become available throug
 ## Security
 
 LMCP is designed so the secure behavior is the default. The codebase has been
-through a formal security audit (v3.0.1, April 2026).
+through a formal security audit (April 2026) with follow-up hardening in v3.0.2.
 
 ### Protections
 
