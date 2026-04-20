@@ -25,6 +25,9 @@ monitoring view when management auth is enabled.
 - **No offline simulation.** If the daemon is unreachable, the UI shows
   an honest error state and refuses to render stale data. A management
   UI must never appear to succeed when the write never happened.
+- **Explicit fetch-failure rendering.** If `/status` cannot be reached,
+  the main panels render `status unavailable` with the transport error
+  instead of a perpetual loading state.
 
 ---
 

@@ -263,27 +263,50 @@ function render() {
   renderPendingBar();
 }
 
+function renderStatusUnavailableHTML() {
+  const msg = esc(state.fetchError || 'Cannot reach daemon.');
+  return ''
+    + '<div class="empty-state">'
+    +   '<div style="color:var(--red);margin-bottom:10px;">status unavailable</div>'
+    +   '<div style="color:var(--fg-2);text-transform:none;letter-spacing:0;font-family:var(--sans);font-size:12px;max-width:560px;margin:0 auto;">'
+    +     msg
+    +   '</div>'
+    + '</div>';
+}
+
 function renderTopBar() {
   const s = state.status;
-  if (!s) return;
-  el('tb-version').textContent = 'v' + (nc(s.status_version, '?'));
-  el('tb-dot').className = 'tb-dot ' + (s.service ? 'live' : 'down');
-  el('tb-host').textContent = s.host + ':' + s.port + (s.loopback_only ? '' : ' · remote');
-  el('tb-uptime').textContent = fmtUptime(s.uptime_s);
-  el('tb-clients').textContent = String((s.clients ? s.clients.length : 0));
-  el('tb-servers').textContent = String((s.servers ? s.servers.length : 0));
   const pill = el('mode-pill');
   if (state.mode === 'management') {
-    pill.textContent = '● management';
+    pill.textContent = 'management';
     pill.className = 'mode-pill unlocked';
     el('btn-unlock').textContent = 'Lock';
     el('btn-unlock').classList.remove('amber');
   } else {
-    pill.textContent = '● read-only';
+    pill.textContent = 'read-only';
     pill.className = 'mode-pill';
     el('btn-unlock').textContent = 'Unlock management';
     el('btn-unlock').classList.add('amber');
   }
+  if (!s) {
+    el('tb-version').textContent = 'v-';
+    el('tb-dot').className = 'tb-dot down';
+    el('tb-host').textContent = 'unreachable';
+    el('tb-uptime').textContent = '-';
+    el('tb-clients').textContent = '-';
+    el('tb-servers').textContent = '-';
+    el('sb-statusver').textContent = '-';
+    el('sb-registry').textContent = state.mode === 'management' ? 'loading' : 'gated';
+    el('sb-status-state').textContent = state.fetchError ? 'unavailable' : 'loading';
+    el('sb-status-state').style.color = state.fetchError ? 'var(--red)' : 'var(--amber)';
+    return;
+  }
+  el('tb-version').textContent = 'v' + (nc(s.status_version, '?'));
+  el('tb-dot').className = 'tb-dot ' + (s.service ? 'live' : 'down');
+  el('tb-host').textContent = s.host + ':' + s.port + (s.loopback_only ? '' : ' / remote');
+  el('tb-uptime').textContent = fmtUptime(s.uptime_s);
+  el('tb-clients').textContent = String((s.clients ? s.clients.length : 0));
+  el('tb-servers').textContent = String((s.servers ? s.servers.length : 0));
   el('sb-statusver').textContent = String(s.status_version);
   el('sb-registry').textContent = (state.registry && state.registry.lmcp && state.registry.lmcp.audit_log) ? 'loaded' : (state.mode === 'management' ? 'loading' : 'gated');
   el('sb-status-state').textContent = 'ok';
@@ -307,7 +330,7 @@ function renderMain() {
 
 function renderMatrixHTML() {
   const s = state.status;
-  if (!s) return '<div class="empty-state">loading…</div>';
+  if (!s) return renderStatusUnavailableHTML();
   const registry = state.registry;
   const clients = s.clients || [];
   const servers = s.servers || [];
@@ -380,7 +403,7 @@ function renderLegend() {
 
 function renderClientsHTML() {
   const s = state.status;
-  if (!s) return '<div class="empty-state">loading…</div>';
+  if (!s) return renderStatusUnavailableHTML();
   const locked = state.mode !== 'management';
   let rows = '';
   (s.clients || []).forEach(c => {
@@ -437,7 +460,7 @@ function renderClientsHTML() {
 
 function renderServersHTML() {
   const s = state.status;
-  if (!s) return '<div class="empty-state">loading…</div>';
+  if (!s) return renderStatusUnavailableHTML();
   const locked = state.mode !== 'management';
   const reg = state.registry;
   let rows = '';
@@ -514,7 +537,7 @@ function renderServersHTML() {
 function renderSettingsHTML() {
   const s = state.status;
   const r = state.registry;
-  if (!s) return '<div class="empty-state">loading…</div>';
+  if (!s) return renderStatusUnavailableHTML();
   return ''
     + '<div class="section-head">'
     +   '<span class="section-title">Info · read-only reference</span>'
@@ -984,6 +1007,7 @@ async function init() {
   try {
     const st = await apiGet('/status');
     state.status = st;
+    state.fetchError = null;
   } catch (e) {
     state.status = null;
     state.fetchError = e.message || String(e);
@@ -1005,7 +1029,15 @@ async function init() {
   connectSSE();
   // Poll /status every 5s for uptime + client/server drift
   setInterval(async () => {
-    try { state.status = await apiGet('/status'); renderTopBar(); } catch(e) {}
+    try {
+      state.status = await apiGet('/status');
+      state.fetchError = null;
+      render();
+    } catch(e) {
+      state.status = null;
+      state.fetchError = e.message || String(e);
+      render();
+    }
   }, 5000);
 }
 

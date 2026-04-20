@@ -31,6 +31,10 @@ All notable changes to LMCP are documented in this file.
   operator into thinking a write succeeded when nothing was persisted.
   The UI now propagates fetch errors, shows an honest error state, and
   reports connection loss in the SSE status line.
+- **Status fetch failures now render as an explicit unavailable state.**
+  Main panels no longer sit in a perpetual `loading…` state after
+  `/status` fails. The top bar and panel body now show that the daemon
+  is unreachable.
 
 ### Security
 - All previous v3.0.1 and v3.0.2 hardening carries forward. XSS escaping
