@@ -48,51 +48,7 @@ const state = {
   expandedServer: null,
   applyError: null,
   applyWarning: null,
-};
-
-// ─── Reference/demo data (used when endpoints unreachable) ─
-const DEMO = {
-  status: {
-    status_version: 3,
-    service: 'lmcp-v3',
-    host: '127.0.0.1',
-    port: 7345,
-    loopback_only: true,
-    uptime_s: 14532.8,
-    clients: [
-      { client_id: 'vscode', token_status: 'set', allow_servers: ['ollama-mcp', 'comfyui-mcp', 'figshare'], rate_limit_rpm: 120 },
-      { client_id: 'claude-desktop', token_status: 'set', allow_servers: ['ollama-mcp', 'figshare'], rate_limit_rpm: null },
-      { client_id: 'codex', token_status: 'placeholder', allow_servers: [], rate_limit_rpm: null },
-    ],
-    servers: [
-      { server_id: 'ollama-mcp',   transport: 'stdio', available_hint: true,  tool_policy_mode: 'allow_all',  timeouts: { initialize_s: 30, tools_list_s: 30, tools_call_s: 300, retry_on_timeout: 1, retry_backoff_s: 1.5 } },
-      { server_id: 'comfyui-mcp',  transport: 'http',  available_hint: true,  tool_policy_mode: 'allow_all',  timeouts: { initialize_s: 60, tools_list_s: 60, tools_call_s: 600, retry_on_timeout: 1, retry_backoff_s: 2 } },
-      { server_id: 'figshare',     transport: 'stdio', available_hint: true,  tool_policy_mode: 'allow_all',  timeouts: { initialize_s: 30, tools_list_s: 30, tools_call_s: 300, retry_on_timeout: 1, retry_backoff_s: 1.5 } },
-      { server_id: 'playwright-docker', transport: 'stdio', available_hint: false, tool_policy_mode: 'deny_all', timeouts: { initialize_s: 45, tools_list_s: 45, tools_call_s: 600, retry_on_timeout: 0, retry_backoff_s: 1 } },
-    ],
-    recent_audit_entries: [
-      { event: 'client_auth',   client_id: 'vscode',         server_id: null,          tool_name: null, allowed: true,  reason: 'token_match',        detail: null, ts: nowIso(-40) },
-      { event: 'server_auth',   client_id: 'vscode',         server_id: 'ollama-mcp',  tool_name: null, allowed: true,  reason: 'on_list',            detail: null, ts: nowIso(-39) },
-      { event: 'server_auth',   client_id: 'claude-desktop', server_id: 'ollama-mcp',  tool_name: null, allowed: true,  reason: 'on_list',            detail: null, ts: nowIso(-28) },
-      { event: 'rate_limited',  client_id: 'codex',          server_id: null,          tool_name: null, allowed: false, reason: 'rate_limit_exceeded',detail: null, ts: nowIso(-22) },
-      { event: 'server_auth',   client_id: 'codex',          server_id: 'ollama-mcp',  tool_name: null, allowed: false, reason: 'not_on_list',        detail: null, ts: nowIso(-18) },
-      { event: 'config_change', client_id: null,             server_id: null,          tool_name: null, allowed: true,  reason: 'management_apply',   detail: { changes: '+1 client mod' }, ts: nowIso(-12) },
-    ],
-  },
-  registry: {
-    lmcp: { host: '127.0.0.1', port: 7345, audit_log: '/var/log/lmcp/audit.jsonl', loopback_only: true, rate_limit_rpm: null },
-    clients: {
-      'vscode':         { token_status: 'set',         allow_servers: ['ollama-mcp','comfyui-mcp','figshare'], rate_limit_rpm: 120 },
-      'claude-desktop': { token_status: 'set',         allow_servers: ['ollama-mcp','figshare'],                rate_limit_rpm: null },
-      'codex':          { token_status: 'placeholder', allow_servers: [],                                        rate_limit_rpm: null },
-    },
-    servers: {
-      'ollama-mcp':        { transport: 'stdio', command: 'npx', args: ['-y','ollama-mcp-server'], env: {}, cwd: null, stdio_mode: 'newline', tool_policy: { mode: 'allow_all', allow_tools: [], deny_tools: [] }, timeouts: { initialize_s: 30, tools_list_s: 30, tools_call_s: 300, retry_on_timeout: 1, retry_backoff_s: 1.5 } },
-      'comfyui-mcp':       { transport: 'http',  url: 'http://127.0.0.1:9000/mcp', headers: { 'X-Api-Key': '***redacted***' }, tool_policy: { mode: 'allow_all', allow_tools: [], deny_tools: [] }, timeouts: { initialize_s: 60, tools_list_s: 60, tools_call_s: 600, retry_on_timeout: 1, retry_backoff_s: 2 } },
-      'figshare':          { transport: 'stdio', command: 'python', args: ['-m','figshare_mcp'], env: { FIGSHARE_TOKEN: '***redacted***' }, cwd: null, stdio_mode: 'newline', tool_policy: { mode: 'allow_all', allow_tools: [], deny_tools: [] }, timeouts: { initialize_s: 30, tools_list_s: 30, tools_call_s: 300, retry_on_timeout: 1, retry_backoff_s: 1.5 } },
-      'playwright-docker': { transport: 'stdio', command: 'docker', args: ['run','-i','--rm','mcp/playwright'], env: {}, cwd: null, stdio_mode: 'newline', tool_policy: { mode: 'deny_all', allow_tools: [], deny_tools: [] }, timeouts: { initialize_s: 45, tools_list_s: 45, tools_call_s: 600, retry_on_timeout: 0, retry_backoff_s: 1 } },
-    },
-  },
+  fetchError: null,   // set if /status initial fetch fails
 };
 
 function nowIso(offsetSeconds) {
@@ -100,109 +56,33 @@ function nowIso(offsetSeconds) {
   return new Date(t).toISOString();
 }
 
-// ─── Fetch wrappers with graceful demo fallback ───────────
+// ─── Fetch wrappers ──────────────────────────────────────
+// Errors propagate to callers. No demo fallback, no silent simulation:
+// a management UI must never appear to succeed when the backend is
+// unreachable or the write never happened.
+
 async function apiGet(path, needsMgmt) {
   const headers = {};
   if (needsMgmt && state.mgmtToken) headers['X-Lmcp-Management-Token'] = state.mgmtToken;
-  try {
-    const r = await fetch(path, { headers });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return await r.json();
-  } catch (e) {
-    // demo fallback
-    if (path === '/status') return DEMO.status;
-    if (path === '/registry/view') return DEMO.registry;
-    throw e;
+  const r = await fetch(path, { headers });
+  if (!r.ok) {
+    const err = new Error('HTTP ' + r.status);
+    err.status = r.status;
+    try { err.body = await r.json(); } catch (_) {}
+    throw err;
   }
+  return await r.json();
 }
 
 async function apiPost(path, body) {
   const headers = { 'Content-Type': 'application/json' };
   if (state.mgmtToken) headers['X-Lmcp-Management-Token'] = state.mgmtToken;
-  try {
-    const r = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      return { _httpError: true, status: r.status, body: data };
-    }
-    return data;
-  } catch (e) {
-    // offline simulation: pretend validation passed
-    return simulateApply(path, body);
+  const r = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    return { _httpError: true, status: r.status, body: data };
   }
-}
-
-function simulateApply(path, body) {
-  const summary = buildChangesSummary();
-  if (path === '/registry/validate') {
-    return { valid: true, errors: [], changes_summary: summary };
-  }
-  if (path === '/registry/apply') {
-    applyPendingToDemo();
-    return {
-      applied: true, errors: [], changes_summary: summary,
-      backup_path: '/var/lib/lmcp/registry.yaml.bak.20260419_143215',
-    };
-  }
-  return {};
-}
-
-function applyPendingToDemo() {
-  // mutate DEMO.registry + DEMO.status to match staged edits
-  Object.entries(state.pending.clients).forEach(([cid, patch]) => {
-    if (patch._action === 'remove') {
-      delete DEMO.registry.clients[cid];
-      DEMO.status.clients = DEMO.status.clients.filter(c => c.client_id !== cid);
-      return;
-    }
-    if (!DEMO.registry.clients[cid]) {
-      DEMO.registry.clients[cid] = { token_status: 'placeholder', allow_servers: [], rate_limit_rpm: null };
-      DEMO.status.clients.push({ client_id: cid, token_status: 'placeholder', allow_servers: [], rate_limit_rpm: null });
-    }
-    if (patch.allow_servers !== undefined) {
-      DEMO.registry.clients[cid].allow_servers = [...patch.allow_servers];
-      const s = DEMO.status.clients.find(c => c.client_id === cid);
-      if (s) s.allow_servers = [...patch.allow_servers];
-    }
-    if (patch.rate_limit_rpm !== undefined) {
-      DEMO.registry.clients[cid].rate_limit_rpm = patch.rate_limit_rpm;
-      const s = DEMO.status.clients.find(c => c.client_id === cid);
-      if (s) s.rate_limit_rpm = patch.rate_limit_rpm;
-    }
-    if (patch.token_status !== undefined) {
-      DEMO.registry.clients[cid].token_status = patch.token_status;
-      const s = DEMO.status.clients.find(c => c.client_id === cid);
-      if (s) s.token_status = patch.token_status;
-    }
-  });
-  Object.entries(state.pending.servers).forEach(([sid, patch]) => {
-    if (patch._action === 'remove') {
-      delete DEMO.registry.servers[sid];
-      DEMO.status.servers = DEMO.status.servers.filter(s => s.server_id !== sid);
-      // cascade: remove from client allowlists
-      Object.values(DEMO.registry.clients).forEach(c => {
-        c.allow_servers = c.allow_servers.filter(x => x !== sid);
-      });
-      DEMO.status.clients.forEach(c => {
-        c.allow_servers = c.allow_servers.filter(x => x !== sid);
-      });
-      return;
-    }
-    if (patch.tool_policy_mode !== undefined) {
-      if (DEMO.registry.servers[sid]) {
-        DEMO.registry.servers[sid].tool_policy.mode = patch.tool_policy_mode;
-      }
-      const s = DEMO.status.servers.find(x => x.server_id === sid);
-      if (s) s.tool_policy_mode = patch.tool_policy_mode;
-    }
-  });
-  // emit a synthetic config_change event
-  pushEvent({
-    event_type: 'config_change',
-    event_version: 1,
-    timestamp: nowIso(0),
-    payload: { allowed: true, reason: 'management_apply' },
-  });
+  return data;
 }
 
 // ─── Pending / diff helpers ──────────────────────────────
@@ -367,39 +247,12 @@ function connectSSE() {
       });
     });
   } catch (e) {
-    // fallback: seed from status, then simulate a tick
-    el('sse-state').textContent = 'offline · demo';
-    el('sb-events-state').textContent = 'demo';
-    el('sb-events-state').style.color = 'var(--amber)';
-    startDemoEventLoop();
+    // EventSource constructor threw (e.g., insecure context). Show disconnected
+    // state honestly -- do not simulate events.
+    el('sse-state').textContent = 'unavailable';
+    el('sb-events-state').textContent = 'unavailable';
+    el('sb-events-state').style.color = 'var(--red)';
   }
-}
-
-function startDemoEventLoop() {
-  // Seed from recent_audit_entries
-  (DEMO.status.recent_audit_entries || []).slice().reverse().forEach(a => {
-    pushEvent({
-      event_type: a.event,
-      event_version: 1,
-      timestamp: a.ts,
-      payload: { client_id: a.client_id, server_id: a.server_id, allowed: a.allowed, reason: a.reason, tool_name: a.tool_name },
-    });
-  });
-  // Gently emit synthetic events
-  const demoSources = [
-    { event_type: 'client_auth', payload: { client_id: 'vscode', allowed: true, reason: 'token_match' } },
-    { event_type: 'server_auth', payload: { client_id: 'vscode', server_id: 'ollama-mcp', allowed: true, reason: 'on_list' } },
-    { event_type: 'server_auth', payload: { client_id: 'claude-desktop', server_id: 'figshare', allowed: true, reason: 'on_list' } },
-    { event_type: 'rate_limited', payload: { client_id: 'codex', allowed: false, reason: 'rate_limit_exceeded' } },
-    { event_type: 'server_auth', payload: { client_id: 'codex', server_id: 'ollama-mcp', allowed: false, reason: 'not_on_list' } },
-    { event_type: 'tool_call', payload: { client_id: 'vscode', server_id: 'ollama-mcp', tool_name: 'generate', allowed: true } },
-  ];
-  let i = 0;
-  setInterval(() => {
-    const src = demoSources[i % demoSources.length];
-    pushEvent({ event_type: src.event_type, event_version: 1, timestamp: nowIso(0), payload: src.payload });
-    i++;
-  }, 4200);
 }
 
 // ─── Rendering ───────────────────────────────────────────
@@ -1132,8 +985,9 @@ async function init() {
     const st = await apiGet('/status');
     state.status = st;
   } catch (e) {
-    state.status = DEMO.status;
-    toast('Offline · showing demo data', 'warn');
+    state.status = null;
+    state.fetchError = e.message || String(e);
+    toast('Cannot reach daemon (/status failed). Verify the daemon is running.', 'err');
   }
   if (state.mgmtToken) {
     try {

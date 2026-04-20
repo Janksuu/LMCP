@@ -6,8 +6,13 @@ monitoring view when management auth is enabled.
 
 ## Design Principles
 
-- **Single page.** One HTML page served by the daemon. No build step,
-  no bundler, no framework install. Inline JS + CSS.
+- **No build step.** The UI is served directly by the daemon. No bundler,
+  no npm install, no external CDNs, no framework. Just HTML, CSS, and
+  vanilla JavaScript served from disk.
+- **Split across two files.** The daemon serves `lmcp/ui.html`
+  (structure + CSS) at `GET /ui` and `lmcp/ui.js` (behavior) at
+  `GET /ui.js`. The HTML references `ui.js` via a relative `<script src>`.
+  Split is for maintainability -- this is not an architectural layer.
 - **Two modes.** Read-only when management is disabled (shows /status and
   /events only). Full management when management_token is configured and
   the operator authenticates.
@@ -17,6 +22,9 @@ monitoring view when management auth is enabled.
 - **No raw tokens.** Client tokens shown as status badges (empty /
   placeholder / set). New tokens entered through a masked input field
   and sent directly in the patch.
+- **No offline simulation.** If the daemon is unreachable, the UI shows
+  an honest error state and refuses to render stale data. A management
+  UI must never appear to succeed when the write never happened.
 
 ---
 
@@ -249,11 +257,13 @@ The UI extracts display fields from `payload`:
 
 ## Technology
 
-- Inline HTML/CSS/JS served by the daemon at GET /ui
-- No build step, no npm, no bundler
-- Vanilla JS with fetch() and EventSource
+- HTML + CSS at `lmcp/ui.html`, JavaScript at `lmcp/ui.js`, served by the
+  daemon at `GET /ui` and `GET /ui.js` respectively
+- No build step, no npm, no bundler, no external CDNs
+- Vanilla JS with `fetch()` and `EventSource`
 - CSS grid for layout
-- Dark theme consistent with current /ui styling
+- Dark theme with amber accents (Orion console visual language)
+- Monospace for identifiers (client_id, server_id, timestamps, IDs in audit events)
 
 ---
 

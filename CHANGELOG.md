@@ -2,6 +2,43 @@
 
 All notable changes to LMCP are documented in this file.
 
+## v3.1.0 - 2026-04-19
+
+### Changed
+- **Management UI redesigned** with operator-console visual language (dark
+  theme, amber accents, monospace identifiers, dense information layout,
+  left nav rail, right events rail, bottom pending-changes bar). Matches
+  the visual language of the broader Genesis builder surfaces.
+- **UI file layout split** into `lmcp/ui.html` (structure + CSS, 457 lines)
+  and `lmcp/ui.js` (behavior, ~1000 lines). Daemon serves both:
+  `GET /ui` returns `text/html`, `GET /ui.js` returns
+  `application/javascript`. No build step, no external dependencies --
+  the split is purely for maintainability.
+- Docs updated: `docs/web_ui.md` describes split-file architecture.
+
+### Added
+- New `_js_response()` helper in daemon.py for serving JavaScript with
+  correct content-type.
+- Layout features: workspace indicator in top bar, unlock-management
+  control, mode pill (read-only vs management), live SSE connection
+  state in bottom status bar, event-type filter dropdown in events rail.
+
+### Fixed
+- **UI no longer silently simulates success when the daemon is
+  unreachable.** Previous version had fallback logic that returned
+  demo data on `/status` / `/registry/view` fetch failures and
+  simulated validate/apply responses offline, which could mislead an
+  operator into thinking a write succeeded when nothing was persisted.
+  The UI now propagates fetch errors, shows an honest error state, and
+  reports connection loss in the SSE status line.
+
+### Security
+- All previous v3.0.1 and v3.0.2 hardening carries forward. XSS escaping
+  via `esc()`, no inline event handlers (DOM delegation with `data-*`
+  attributes), management token stored only in `sessionStorage`.
+
+---
+
 ## v3.0.2 - 2026-04-16
 
 ### Fixed
