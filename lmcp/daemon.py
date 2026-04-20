@@ -204,6 +204,15 @@ def _html_response(handler: BaseHTTPRequestHandler, status: int, html: str) -> N
     handler.wfile.write(body)
 
 
+def _js_response(handler: BaseHTTPRequestHandler, status: int, js: str) -> None:
+    body = js.encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", "application/javascript; charset=utf-8")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
 def _extract_query(handler: BaseHTTPRequestHandler) -> dict[str, str]:
     parsed = urlparse(handler.path)
     raw = parse_qs(parsed.query)
@@ -374,6 +383,16 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                     _json_response(self, 500, {"ok": False, "error": "ui_file_missing"})
                     return
                 _html_response(self, 200, html)
+                return
+
+            if path == "/ui.js":
+                js_path = Path(__file__).resolve().parent / "ui.js"
+                try:
+                    js = js_path.read_text(encoding="utf-8")
+                except FileNotFoundError:
+                    _json_response(self, 500, {"ok": False, "error": "ui_js_missing"})
+                    return
+                _js_response(self, 200, js)
                 return
 
             if path == "/events":

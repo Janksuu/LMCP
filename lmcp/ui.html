@@ -1,535 +1,457 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>LMCP Management</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: system-ui, -apple-system, sans-serif; background: #0d1117; color: #c9d1d9; font-size: 14px; }
-    a { color: #58a6ff; }
-    .container { max-width: 1200px; margin: 0 auto; padding: 16px; }
+<meta charset="UTF-8">
+<title>LMCP Console</title>
+<style>
+/* ─── Tokens ───────────────────────────────────────────── */
+:root {
+  --bg-0: #0b0c0e;
+  --bg-1: #111315;
+  --bg-2: #17191c;
+  --bg-3: #1f2226;
+  --line: #24272b;
+  --line-soft: #1b1d20;
+  --fg-0: #e6e8ea;
+  --fg-1: #b8bcc1;
+  --fg-2: #7c8288;
+  --fg-3: #565b61;
+  --amber: #e3a44a;
+  --amber-dim: #8a6128;
+  --amber-ink: #1a140a;
+  --green: #6ea26e;
+  --red: #b46a66;
+  --blue: #6f92b7;
+  --sans: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg-0); color: var(--fg-0);
+  font-family: var(--sans); font-size: 13px; line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  height: 100vh; overflow: hidden;
+}
+.mono { font-family: var(--mono); }
+.k { color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.14em; font-size: 10px; }
+.muted { color: var(--fg-2); }
+.dim { color: var(--fg-3); }
+button { font-family: inherit; }
+input, select { font-family: inherit; }
 
-    /* Header */
-    .header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #161b22; border: 1px solid #30363d; border-radius: 6px; margin-bottom: 16px; }
-    .header h1 { font-size: 18px; font-weight: 600; }
-    .header .status { display: flex; gap: 12px; align-items: center; font-size: 13px; color: #8b949e; }
-    .header .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-    .dot.green { background: #3fb950; }
-    .dot.gray { background: #484f58; }
-    .badge { padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
-    .badge.mgmt { background: #1f6feb33; color: #58a6ff; border: 1px solid #1f6feb; }
-    .badge.readonly { background: #30363d; color: #8b949e; border: 1px solid #484f58; }
+/* ─── Layout ───────────────────────────────────────────── */
+#app {
+  display: grid;
+  grid-template-rows: 44px 1fr 28px;
+  grid-template-columns: 56px 1fr 340px;
+  height: 100vh;
+}
+#topbar    { grid-column: 1 / -1; }
+#navrail   { grid-row: 2; grid-column: 1; }
+#main      { grid-row: 2; grid-column: 2; min-width: 0; overflow: hidden; display: grid; grid-template-rows: 1fr auto; }
+#eventsrail{ grid-row: 2; grid-column: 3; border-left: 1px solid var(--line); background: var(--bg-1); min-width: 0; display: flex; flex-direction: column; }
+#statusbar { grid-column: 1 / -1; }
 
-    /* Auth prompt */
-    .auth-prompt { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 20px; margin-bottom: 16px; text-align: center; }
-    .auth-prompt input { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 8px 12px; border-radius: 6px; width: 300px; margin: 8px; }
-    .auth-prompt button { background: #238636; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; }
-    .auth-prompt button:hover { background: #2ea043; }
-    .auth-info { color: #8b949e; font-size: 13px; margin-top: 8px; }
+/* ─── Top bar ──────────────────────────────────────────── */
+#topbar {
+  background: var(--bg-1); border-bottom: 1px solid var(--line);
+  display: flex; align-items: stretch; font-size: 12px;
+}
+.tb-brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 16px; border-right: 1px solid var(--line); min-width: 56px;
+}
+.tb-mark { width: 14px; height: 14px; border: 1.5px solid var(--amber); transform: rotate(45deg); }
+.tb-name { letter-spacing: 0.14em; text-transform: uppercase; font-weight: 600; font-size: 11px; }
+.tb-ver { color: var(--fg-2); font-family: var(--mono); font-size: 11px; }
+.tb-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 16px; border-right: 1px solid var(--line); color: var(--fg-1);
+}
+.tb-label { color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.1em; font-size: 10px; }
+.tb-val { color: var(--fg-0); font-family: var(--mono); font-size: 11px; }
+.tb-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-3); display: inline-block; }
+.tb-dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.tb-dot.down { background: var(--red); box-shadow: 0 0 6px var(--red); }
+.tb-spacer { flex: 1; }
+.tb-right { display: flex; align-items: stretch; }
+.tb-right .tb-item { border-right: none; border-left: 1px solid var(--line); }
+.mode-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--fg-1); background: var(--bg-2);
+}
+.mode-pill.unlocked { color: var(--amber); border-color: var(--amber-dim); }
+.btn {
+  padding: 4px 10px; font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  border: 1px solid var(--line); background: var(--bg-2); color: var(--fg-1);
+  cursor: pointer;
+}
+.btn:hover { color: var(--fg-0); border-color: var(--fg-3); background: var(--bg-3); }
+.btn.amber { color: var(--amber); border-color: var(--amber-dim); }
+.btn.amber:hover { background: rgba(227,164,74,0.08); border-color: var(--amber); }
+.btn.amber-solid { color: var(--amber-ink); background: var(--amber); border-color: var(--amber); }
+.btn.amber-solid:hover { background: #f2b55d; }
+.btn.danger { color: var(--red); border-color: #6b3938; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-    /* Panels */
-    .panel { background: #161b22; border: 1px solid #30363d; border-radius: 6px; margin-bottom: 16px; }
-    .panel-header { padding: 10px 16px; border-bottom: 1px solid #30363d; font-weight: 600; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
-    .panel-body { padding: 12px 16px; overflow-x: auto; }
+/* ─── Nav rail ─────────────────────────────────────────── */
+#navrail { background: var(--bg-1); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+.nav-item {
+  height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px; color: var(--fg-2); cursor: pointer; position: relative;
+  border-bottom: 1px solid var(--line-soft);
+}
+.nav-item:hover { color: var(--fg-0); background: var(--bg-2); }
+.nav-item.active { color: var(--fg-0); background: var(--bg-2); }
+.nav-item.active::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--amber);
+}
+.nav-glyph { font-family: var(--mono); font-size: 15px; }
+.nav-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; }
+.nav-badge {
+  position: absolute; top: 8px; right: 8px;
+  font-family: var(--mono); font-size: 9px; min-width: 14px; height: 14px; padding: 0 3px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--amber); color: var(--amber-ink);
+}
 
-    /* Matrix */
-    .matrix table { border-collapse: collapse; width: 100%; }
-    .matrix th, .matrix td { padding: 6px 12px; text-align: center; border: 1px solid #21262d; font-size: 13px; }
-    .matrix th { background: #0d1117; color: #8b949e; font-weight: 500; }
-    .matrix td:first-child { text-align: left; font-weight: 500; }
-    .matrix input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #238636; }
-    .matrix input[type="checkbox"]:disabled { cursor: default; opacity: 0.4; }
+/* ─── Status bar ───────────────────────────────────────── */
+#statusbar {
+  background: var(--bg-1); border-top: 1px solid var(--line);
+  display: flex; align-items: center; padding: 0 12px; gap: 20px;
+  font-family: var(--mono); font-size: 11px; color: var(--fg-2);
+}
+.sep { width: 1px; height: 14px; background: var(--line); }
+.spin { width: 6px; height: 6px; background: var(--amber); display: inline-block; animation: pulse 1.8s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
+#statusbar .right { margin-left: auto; display: flex; gap: 20px; }
 
-    /* Two-column */
-    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    @media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } }
+/* ─── Section header ───────────────────────────────────── */
+.section-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 14px 20px 10px; border-bottom: 1px solid var(--line);
+}
+.section-title {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--fg-1); font-weight: 500;
+}
+.section-id { font-family: var(--mono); font-size: 10px; color: var(--fg-3); }
 
-    /* Item lists */
-    .item { padding: 8px 0; border-bottom: 1px solid #21262d; }
-    .item:last-child { border-bottom: none; }
-    .item-title { font-weight: 600; margin-bottom: 4px; }
-    .item-detail { font-size: 12px; color: #8b949e; line-height: 1.6; }
-    .item-detail span { margin-right: 12px; }
-    .token-badge { padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-    .token-badge.set { background: #23863633; color: #3fb950; }
-    .token-badge.placeholder { background: #d2992233; color: #d29922; }
-    .token-badge.empty { background: #f8514933; color: #f85149; }
+/* ─── Main content ─────────────────────────────────────── */
+#main-content { overflow-y: auto; padding: 20px; }
 
-    /* Pending changes */
-    .changes-list { font-size: 13px; line-height: 1.8; }
-    .changes-list .added { color: #3fb950; }
-    .changes-list .modified { color: #d29922; }
-    .changes-list .removed { color: #f85149; }
-    .btn-row { display: flex; gap: 8px; margin-top: 8px; }
-    .btn { padding: 6px 14px; border-radius: 6px; border: 1px solid #30363d; font-size: 13px; font-weight: 600; cursor: pointer; }
-    .btn-primary { background: #238636; color: #fff; border-color: #238636; }
-    .btn-primary:hover { background: #2ea043; }
-    .btn-secondary { background: transparent; color: #c9d1d9; }
-    .btn-secondary:hover { background: #21262d; }
-    .btn-danger { background: transparent; color: #f85149; border-color: #f85149; }
-    .btn-danger:hover { background: #f8514922; }
-    .btn:disabled { opacity: 0.4; cursor: default; }
-    .error-list { color: #f85149; font-size: 13px; margin-top: 8px; }
+/* ─── Permission matrix ────────────────────────────────── */
+.matrix-wrap { border: 1px solid var(--line); background: var(--bg-0); overflow: auto; }
+.matrix { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+.matrix th, .matrix td {
+  border-right: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+  padding: 10px 12px; text-align: center; vertical-align: middle;
+}
+.matrix th {
+  background: var(--bg-1); color: var(--fg-1); font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.1em; font-size: 10px;
+  position: sticky; top: 0; z-index: 1;
+}
+.matrix th.sv { font-family: var(--mono); font-size: 11px; color: var(--fg-0); text-transform: none; letter-spacing: 0; }
+.matrix td.client-cell {
+  text-align: left; background: var(--bg-1);
+  position: sticky; left: 0; z-index: 1;
+  border-right: 1px solid var(--line);
+}
+.matrix td.client-cell .cid { color: var(--fg-0); font-size: 13px; }
+.matrix td.client-cell .cmeta { color: var(--fg-2); font-size: 10px; margin-top: 2px; display: flex; gap: 10px; }
+.matrix td.client-cell .token-pill {
+  display: inline-block; font-size: 9px; letter-spacing: 0.1em; padding: 1px 5px;
+  border: 1px solid var(--line); color: var(--fg-2);
+}
+.matrix td.client-cell .token-pill.set { color: var(--green); border-color: #35523a; }
+.matrix td.client-cell .token-pill.placeholder { color: var(--amber); border-color: var(--amber-dim); }
+.matrix td.client-cell .token-pill.empty { color: var(--red); border-color: #6b3938; }
+.matrix th.server-head { text-align: left; padding: 10px 12px; min-width: 140px; }
+.matrix th.server-head .sid { color: var(--fg-0); font-family: var(--mono); font-size: 12px; text-transform: none; letter-spacing: 0; }
+.matrix th.server-head .smeta { color: var(--fg-2); font-size: 9px; margin-top: 2px; font-weight: 400; }
+.matrix th.server-head .stransport { color: var(--blue); font-size: 9px; letter-spacing: 0.08em; }
 
-    /* Events */
-    .events-log { max-height: 250px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.6; }
-    .events-log .row { padding: 2px 0; border-bottom: 1px solid #21262d; display: flex; gap: 8px; }
-    .events-log .ts { color: #484f58; min-width: 80px; }
-    .events-log .evt { color: #58a6ff; min-width: 110px; }
-    .events-log .client { color: #d2a8ff; min-width: 100px; }
-    .events-log .allowed-yes { color: #3fb950; }
-    .events-log .allowed-no { color: #f85149; }
-    .events-log .reason { color: #8b949e; }
-    .events-log .config-row { background: #1f6feb11; }
+.cell-btn {
+  width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); background: var(--bg-1);
+  cursor: pointer; color: var(--fg-3); font-family: var(--mono); font-size: 14px;
+}
+.cell-btn.on { background: rgba(227,164,74,0.12); border-color: var(--amber-dim); color: var(--amber); }
+.cell-btn.on.dirty { border-color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
+.cell-btn.off.dirty { border-style: dashed; border-color: var(--amber); color: var(--amber); }
+.cell-btn.locked { cursor: not-allowed; opacity: 0.7; }
+.cell-btn.locked:hover::after {
+  content: 'read-only'; position: absolute; transform: translate(16px, 16px);
+  background: var(--bg-3); color: var(--fg-1); padding: 3px 8px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  border: 1px solid var(--line); z-index: 10; white-space: nowrap;
+}
+.cell-btn:not(.locked):hover { color: var(--amber); }
 
-    .empty-msg { color: #484f58; font-style: italic; padding: 12px 0; }
-    .filter-select { background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
-  </style>
+/* ─── Panel cards ──────────────────────────────────────── */
+.panel-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px; }
+.panel {
+  border: 1px solid var(--line); background: var(--bg-0);
+  display: flex; flex-direction: column; min-height: 0;
+}
+.panel-head {
+  padding: 10px 14px; border-bottom: 1px solid var(--line);
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.panel-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--fg-1); font-weight: 500; }
+.panel-sub { font-family: var(--mono); font-size: 10px; color: var(--fg-3); }
+.panel-body { padding: 4px 0; }
+
+/* ─── List rows (client/server) ────────────────────────── */
+.list-row {
+  padding: 10px 14px; border-bottom: 1px solid var(--line-soft);
+  cursor: pointer;
+}
+.list-row:hover { background: var(--bg-1); }
+.list-row:last-child { border-bottom: none; }
+.list-row.expanded { background: var(--bg-1); border-bottom: 1px solid var(--line); }
+.row-head { display: flex; align-items: center; gap: 10px; }
+.row-id { font-family: var(--mono); font-size: 13px; color: var(--fg-0); }
+.row-meta { display: flex; gap: 10px; margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--fg-2); }
+.row-detail { padding-top: 10px; margin-top: 8px; border-top: 1px solid var(--line-soft); font-family: var(--mono); font-size: 11px; color: var(--fg-1); }
+.row-detail dl { display: grid; grid-template-columns: 120px 1fr; gap: 4px 14px; margin: 0; }
+.row-detail dt { color: var(--fg-2); font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; padding-top: 2px; }
+.row-detail dd { margin: 0; color: var(--fg-0); word-break: break-all; }
+.row-detail dd.locked-field {
+  color: var(--fg-2); font-style: italic;
+}
+.row-detail .actions { display: flex; gap: 6px; margin-top: 12px; }
+.inline-input {
+  background: var(--bg-2); border: 1px solid var(--line); color: var(--fg-0);
+  font-family: var(--mono); font-size: 11px; padding: 3px 6px;
+}
+.inline-input:focus { outline: none; border-color: var(--amber-dim); }
+.inline-select {
+  background: var(--bg-2); border: 1px solid var(--line); color: var(--fg-0);
+  font-family: var(--mono); font-size: 11px; padding: 3px 6px;
+}
+
+/* ─── Events rail ──────────────────────────────────────── */
+#eventsrail .section-head { padding: 14px 16px 10px; }
+.events-controls { padding: 8px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
+.events-controls select {
+  flex: 1;
+  background: var(--bg-2); border: 1px solid var(--line); color: var(--fg-1);
+  font-family: var(--mono); font-size: 10px; padding: 3px 6px; text-transform: uppercase; letter-spacing: 0.08em;
+}
+.events-list { flex: 1; overflow-y: auto; font-family: var(--mono); font-size: 11px; }
+.event-row {
+  padding: 8px 16px; border-bottom: 1px solid var(--line-soft);
+  display: grid; grid-template-columns: 56px 1fr; gap: 10px;
+  align-items: start;
+}
+.event-row.own { background: rgba(227,164,74,0.04); border-left: 2px solid var(--amber-dim); padding-left: 14px; }
+.event-ts { color: var(--fg-3); font-size: 10px; padding-top: 1px; }
+.event-type {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.12em;
+  padding: 1px 5px; border: 1px solid var(--line); color: var(--fg-2);
+  display: inline-block; margin-bottom: 3px;
+}
+.event-type.allowed { color: var(--green); border-color: #35523a; }
+.event-type.denied { color: var(--red); border-color: #6b3938; }
+.event-type.rate_limited { color: var(--amber); border-color: var(--amber-dim); }
+.event-type.config_change { color: var(--amber); border-color: var(--amber); background: rgba(227,164,74,0.08); }
+.event-type.server_error { color: var(--red); border-color: #6b3938; }
+.event-detail { font-size: 11px; color: var(--fg-1); line-height: 1.4; }
+.event-detail .eid { color: var(--fg-0); }
+.event-detail .reason { color: var(--fg-2); font-style: italic; }
+.events-empty { padding: 40px 20px; color: var(--fg-3); text-align: center; font-family: var(--mono); font-size: 11px; }
+
+/* ─── Pending changes docked bar ───────────────────────── */
+#pending-bar {
+  background: var(--bg-1); border-top: 1px solid var(--amber-dim);
+  display: none;
+  grid-template-columns: auto 1fr auto;
+  gap: 20px; padding: 10px 20px; align-items: center;
+}
+#pending-bar.visible { display: grid; }
+#pending-bar.error { border-top-color: var(--red); }
+#pending-bar.warning { border-top-color: var(--amber); }
+.pending-label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--amber);
+}
+.pending-label.error { color: var(--red); }
+.pending-summary {
+  font-family: var(--mono); font-size: 12px; color: var(--fg-0);
+  display: flex; gap: 14px; flex-wrap: wrap;
+}
+.pending-summary .tag { color: var(--fg-2); }
+.pending-summary .amber { color: var(--amber); }
+.pending-summary .red { color: var(--red); }
+.pending-actions { display: flex; gap: 8px; }
+.pending-errors {
+  grid-column: 1 / -1; margin-top: 8px; padding: 10px 12px;
+  background: rgba(180,106,102,0.08); border: 1px solid #6b3938;
+  font-family: var(--mono); font-size: 11px; color: var(--red);
+}
+.pending-errors ul { margin: 6px 0 0; padding-left: 20px; color: var(--fg-1); }
+
+/* ─── Modal ────────────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+}
+.modal {
+  background: var(--bg-0); border: 1px solid var(--line);
+  min-width: 480px; max-width: 720px; max-height: 80vh;
+  display: flex; flex-direction: column;
+}
+.modal-head {
+  padding: 14px 20px; border-bottom: 1px solid var(--line);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.modal-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--fg-0); }
+.modal-close { color: var(--fg-2); cursor: pointer; font-family: var(--mono); font-size: 14px; }
+.modal-body { padding: 20px; overflow-y: auto; }
+.modal-foot { padding: 12px 20px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; }
+.diff-list { font-family: var(--mono); font-size: 12px; }
+.diff-item { padding: 6px 0; border-bottom: 1px solid var(--line-soft); display: grid; grid-template-columns: 20px 1fr; gap: 10px; }
+.diff-item.add { color: var(--green); }
+.diff-item.rem { color: var(--red); }
+.diff-item.mod { color: var(--amber); }
+.diff-item .glyph { font-weight: 600; }
+details summary { cursor: pointer; font-family: var(--mono); font-size: 10px; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.12em; margin-top: 14px; }
+details[open] summary { color: var(--fg-0); }
+.raw-patch { margin-top: 8px; padding: 12px; background: var(--bg-1); border: 1px solid var(--line-soft); font-family: var(--mono); font-size: 11px; color: var(--fg-1); white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto; }
+
+/* ─── Toast ─────────────────────────────────────────────── */
+#toast {
+  position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
+  padding: 10px 18px; background: var(--bg-1); border: 1px solid var(--line);
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em;
+  z-index: 200; display: none;
+}
+#toast.visible { display: block; }
+#toast.ok { border-color: #35523a; color: var(--green); }
+#toast.err { border-color: #6b3938; color: var(--red); }
+#toast.warn { border-color: var(--amber-dim); color: var(--amber); }
+
+/* ─── Utility ──────────────────────────────────────────── */
+.scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll::-webkit-scrollbar-track { background: var(--bg-0); }
+.scroll::-webkit-scrollbar-thumb { background: var(--bg-3); }
+.empty-state {
+  padding: 60px 20px; text-align: center;
+  color: var(--fg-3); font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.12em; text-transform: uppercase;
+}
+</style>
 </head>
 <body>
-<div class="container">
 
-  <!-- Header -->
-  <div class="header">
-    <h1>LMCP Management</h1>
-    <div class="status">
-      <span><span class="dot green" id="statusDot"></span> running</span>
-      <span id="uptimeDisplay"></span>
-      <span class="badge readonly" id="modeBadge">Read-only</span>
+<div id="app">
+  <!-- Top bar -->
+  <div id="topbar">
+    <div class="tb-brand">
+      <div class="tb-mark"></div>
+      <div class="tb-name">LMCP</div>
+      <span class="tb-ver" id="tb-version">v3</span>
     </div>
-  </div>
-
-  <!-- Auth prompt (shown when management is available but not authenticated) -->
-  <div class="auth-prompt" id="authPrompt" style="display:none;">
-    <div>Management token required</div>
-    <div><input type="password" id="mgmtTokenInput" placeholder="Management token" /></div>
-    <div><button onclick="authenticate()">Authenticate</button></div>
-    <div class="auth-info" id="authInfo"></div>
-  </div>
-
-  <!-- Management disabled info -->
-  <div class="auth-prompt" id="mgmtDisabled" style="display:none;">
-    <div class="auth-info">Management is not enabled. Set <code>management_token</code> in registry.yaml to enable editing.</div>
-  </div>
-
-  <!-- Permission Matrix -->
-  <div class="panel" id="matrixPanel" style="display:none;">
-    <div class="panel-header">Permission Matrix</div>
-    <div class="panel-body matrix" id="matrixBody"></div>
-  </div>
-
-  <!-- Two-column: Clients + Servers -->
-  <div class="two-col">
-    <div class="panel">
-      <div class="panel-header">Clients</div>
-      <div class="panel-body" id="clientsBody"><div class="empty-msg">Loading...</div></div>
+    <div class="tb-item">
+      <span class="tb-label">Daemon</span>
+      <span class="tb-dot" id="tb-dot"></span>
+      <span class="tb-val" id="tb-host">—</span>
     </div>
-    <div class="panel">
-      <div class="panel-header">Servers</div>
-      <div class="panel-body" id="serversBody"><div class="empty-msg">Loading...</div></div>
+    <div class="tb-item">
+      <span class="tb-label">Uptime</span>
+      <span class="tb-val" id="tb-uptime">—</span>
     </div>
-  </div>
-
-  <!-- Pending Changes -->
-  <div class="panel" id="pendingPanel" style="display:none;">
-    <div class="panel-header">Pending Changes</div>
-    <div class="panel-body">
-      <div class="changes-list" id="changesList"></div>
-      <div class="error-list" id="errorList"></div>
-      <div class="btn-row">
-        <button class="btn btn-secondary" onclick="validateChanges()">Validate</button>
-        <button class="btn btn-primary" onclick="applyChanges()">Apply</button>
-        <button class="btn btn-danger" onclick="discardChanges()">Discard</button>
+    <div class="tb-item">
+      <span class="tb-label">Clients</span>
+      <span class="tb-val" id="tb-clients">0</span>
+      <span class="tb-label">Servers</span>
+      <span class="tb-val" id="tb-servers">0</span>
+    </div>
+    <div class="tb-spacer"></div>
+    <div class="tb-right">
+      <div class="tb-item">
+        <span class="tb-label">Mode</span>
+        <span class="mode-pill" id="mode-pill">● read-only</span>
+      </div>
+      <div class="tb-item">
+        <button class="btn amber" id="btn-unlock">Unlock management</button>
       </div>
     </div>
   </div>
 
-  <!-- Live Events -->
-  <div class="panel">
-    <div class="panel-header">
-      Live Events
-      <select class="filter-select" id="eventFilter" onchange="applyEventFilter()">
-        <option value="">all</option>
+  <!-- Nav rail -->
+  <div id="navrail">
+    <div class="nav-item active" data-nav="matrix">
+      <span class="nav-glyph">◫</span><span class="nav-lbl">Matrix</span>
+    </div>
+    <div class="nav-item" data-nav="clients">
+      <span class="nav-glyph">◎</span><span class="nav-lbl">Clients</span>
+    </div>
+    <div class="nav-item" data-nav="servers">
+      <span class="nav-glyph">⚙</span><span class="nav-lbl">Servers</span>
+    </div>
+    <div class="nav-item" data-nav="settings">
+      <span class="nav-glyph">≡</span><span class="nav-lbl">Info</span>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div id="main">
+    <div id="main-content" class="scroll"></div>
+    <div id="pending-bar"></div>
+  </div>
+
+  <!-- Events rail -->
+  <div id="eventsrail">
+    <div class="section-head">
+      <span class="section-title">Live events</span>
+      <span class="section-id" id="sse-state">disconnected</span>
+    </div>
+    <div class="events-controls">
+      <select id="event-filter">
+        <option value="">all event types</option>
         <option value="client_auth">client_auth</option>
         <option value="server_auth">server_auth</option>
         <option value="rate_limited">rate_limited</option>
         <option value="config_change">config_change</option>
+        <option value="server_error">server_error</option>
+        <option value="tool_call">tool_call</option>
+        <option value="tool_result">tool_result</option>
       </select>
+      <button class="btn" id="btn-clear-events">Clear</button>
     </div>
-    <div class="panel-body events-log" id="eventsLog">
-      <div class="empty-msg">Waiting for events...</div>
+    <div class="events-list scroll" id="events-list">
+      <div class="events-empty">waiting for events…</div>
     </div>
   </div>
 
+  <!-- Status bar -->
+  <div id="statusbar">
+    <span><span class="spin"></span> event bus</span>
+    <span class="sep"></span>
+    <span>/status <span id="sb-status-state" style="color: var(--fg-0)">—</span></span>
+    <span class="sep"></span>
+    <span>/events <span id="sb-events-state" style="color: var(--fg-0)">—</span></span>
+    <span class="sep"></span>
+    <span>status_version <span id="sb-statusver" style="color: var(--fg-0)">—</span></span>
+    <div class="right">
+      <span>registry <span id="sb-registry" style="color: var(--fg-0)">—</span></span>
+      <span class="sep"></span>
+      <span>lmcp-v3 · management api</span>
+    </div>
+  </div>
 </div>
 
-<script>
-// --- State ---
-let mgmtToken = sessionStorage.getItem('lmcp_mgmt_token') || '';
-let mgmtMode = false;
-let registryData = null;
-let statusData = null;
-let pendingPatch = {};
-let eventSource = null;
-let eventFilter = '';
-const MAX_EVENTS = 200;
+<div id="toast"></div>
 
-// --- Init ---
-async function init() {
-  await loadStatus();
-  await checkManagement();
-  connectSSE();
-  setInterval(() => loadStatus().catch(() => {}), 5000);
-}
-
-// --- Status ---
-async function loadStatus() {
-  try {
-    const r = await fetch('/status');
-    const d = await r.json();
-    statusData = d.status || d;
-    renderStatus();
-    if (!mgmtMode) renderReadOnlyPanels();
-  } catch(e) { console.error('status fetch failed', e); }
-}
-
-function renderStatus() {
-  if (!statusData) return;
-  const up = statusData.uptime_s;
-  document.getElementById('uptimeDisplay').textContent = up != null ? formatUptime(up) : '';
-}
-
-function formatUptime(s) {
-  if (s < 60) return Math.round(s) + 's';
-  if (s < 3600) return Math.round(s/60) + 'm';
-  return Math.round(s/3600) + 'h ' + Math.round((s%3600)/60) + 'm';
-}
-
-// --- Management check ---
-async function checkManagement() {
-  try {
-    const headers = {};
-    if (mgmtToken) headers['X-Lmcp-Management-Token'] = mgmtToken;
-    const r = await fetch('/registry/view', { headers });
-    if (r.ok) {
-      const d = await r.json();
-      registryData = d.registry;
-      mgmtMode = true;
-      document.getElementById('modeBadge').textContent = 'Management';
-      document.getElementById('modeBadge').className = 'badge mgmt';
-      document.getElementById('authPrompt').style.display = 'none';
-      document.getElementById('mgmtDisabled').style.display = 'none';
-      document.getElementById('matrixPanel').style.display = '';
-      renderManagementPanels();
-      return;
-    }
-    const d = await r.json();
-    if (d.error === 'management_disabled') {
-      document.getElementById('mgmtDisabled').style.display = '';
-      document.getElementById('authPrompt').style.display = 'none';
-    } else if (d.error === 'management_unauthorized') {
-      document.getElementById('authPrompt').style.display = '';
-      document.getElementById('mgmtDisabled').style.display = 'none';
-      if (mgmtToken) document.getElementById('authInfo').textContent = 'Invalid token.';
-    }
-  } catch(e) { console.error('management check failed', e); }
-}
-
-function authenticate() {
-  mgmtToken = document.getElementById('mgmtTokenInput').value;
-  sessionStorage.setItem('lmcp_mgmt_token', mgmtToken);
-  document.getElementById('authInfo').textContent = '';
-  checkManagement();
-}
-
-// --- Read-only panels (from /status) ---
-function renderReadOnlyPanels() {
-  if (!statusData) return;
-  const cb = document.getElementById('clientsBody');
-  const sb = document.getElementById('serversBody');
-  cb.innerHTML = (statusData.clients || []).map(c => `
-    <div class="item">
-      <div class="item-title">${esc(c.client_id)}</div>
-      <div class="item-detail">
-        <span>token: <span class="token-badge ${esc(c.token_status)}">${esc(c.token_status)}</span></span>
-        <span>servers: ${(c.allow_servers||[]).length}</span>
-        ${c.rate_limit_rpm ? '<span>rpm: '+esc(c.rate_limit_rpm)+'</span>' : ''}
-      </div>
-    </div>`).join('') || '<div class="empty-msg">No clients</div>';
-  sb.innerHTML = (statusData.servers || []).map(s => `
-    <div class="item">
-      <div class="item-title">${esc(s.server_id)}</div>
-      <div class="item-detail">
-        <span>transport: ${esc(s.transport)}</span>
-        <span>policy: ${esc(s.tool_policy_mode)}</span>
-      </div>
-    </div>`).join('') || '<div class="empty-msg">No servers</div>';
-}
-
-// --- Management panels (from /registry/view) ---
-function renderManagementPanels() {
-  if (!registryData) return;
-  renderMatrix();
-  renderClients();
-  renderServers();
-  renderPending();
-}
-
-function renderMatrix() {
-  const clients = Object.keys(registryData.clients).sort();
-  const servers = Object.keys(registryData.servers).sort();
-  if (!clients.length || !servers.length) {
-    document.getElementById('matrixBody').innerHTML = '<div class="empty-msg">Add clients and servers to see the matrix</div>';
-    return;
-  }
-  let html = '<table><tr><th></th>';
-  servers.forEach(s => { html += `<th>${esc(s)}</th>`; });
-  html += '</tr>';
-  clients.forEach(cid => {
-    const c = registryData.clients[cid];
-    const allowed = new Set(c.allow_servers || []);
-    // Check pending patch
-    const patchAllowed = pendingPatch.clients?.[cid]?.allow_servers;
-    const effectiveAllowed = patchAllowed ? new Set(patchAllowed) : allowed;
-    html += `<tr><td>${esc(cid)}</td>`;
-    servers.forEach(sid => {
-      const checked = effectiveAllowed.has(sid);
-      const changed = patchAllowed && (checked !== allowed.has(sid));
-      const style = changed ? 'style="background:#1f6feb22"' : '';
-      html += `<td ${style}><input type="checkbox" ${checked?'checked':''} data-client="${esc(cid)}" data-server="${esc(sid)}" class="perm-toggle" /></td>`;
-    });
-    html += '</tr>';
-  });
-  html += '</table>';
-  document.getElementById('matrixBody').innerHTML = html;
-  // Bind events via DOM instead of inline handlers (prevents XSS via attribute injection)
-  document.querySelectorAll('.perm-toggle').forEach(cb => {
-    cb.addEventListener('change', function() {
-      togglePermission(this.dataset.client, this.dataset.server, this.checked);
-    });
-  });
-}
-
-function renderClients() {
-  const cb = document.getElementById('clientsBody');
-  const clients = registryData.clients;
-  const ids = Object.keys(clients).sort();
-  cb.innerHTML = ids.map(cid => {
-    const c = clients[cid];
-    return `<div class="item">
-      <div class="item-title">${esc(cid)}</div>
-      <div class="item-detail">
-        <span>token: <span class="token-badge ${esc(c.token_status)}">${esc(c.token_status)}</span></span>
-        <span>servers: ${(c.allow_servers||[]).length}</span>
-        ${c.rate_limit_rpm ? '<span>rpm: '+esc(c.rate_limit_rpm)+'</span>' : '<span>rpm: unlimited</span>'}
-      </div>
-    </div>`;
-  }).join('') || '<div class="empty-msg">No clients</div>';
-}
-
-function renderServers() {
-  const sb = document.getElementById('serversBody');
-  const servers = registryData.servers;
-  const ids = Object.keys(servers).sort();
-  sb.innerHTML = ids.map(sid => {
-    const s = servers[sid];
-    const target = s.transport === 'stdio' ? [s.command, ...(s.args||[])].join(' ') : (s.url || '');
-    return `<div class="item">
-      <div class="item-title">${esc(sid)}</div>
-      <div class="item-detail">
-        <span>transport: ${esc(s.transport)}</span>
-        <span>policy: ${esc(s.tool_policy.mode)}</span>
-      </div>
-      <div class="item-detail">
-        <span>target: ${esc(target.substring(0,60))}${target.length>60?'...':''}</span>
-      </div>
-      ${s.timeouts ? `<div class="item-detail"><span>timeouts: init=${esc(s.timeouts.initialize_s||'-')}s list=${esc(s.timeouts.tools_list_s||'-')}s call=${esc(s.timeouts.tools_call_s||'-')}s</span></div>` : ''}
-    </div>`;
-  }).join('') || '<div class="empty-msg">No servers</div>';
-}
-
-// --- Permission toggle ---
-function togglePermission(clientId, serverId, checked) {
-  if (!pendingPatch.clients) pendingPatch.clients = {};
-  if (!pendingPatch.clients[clientId]) {
-    // Start from current state
-    pendingPatch.clients[clientId] = {
-      allow_servers: [...(registryData.clients[clientId]?.allow_servers || [])]
-    };
-  }
-  const list = pendingPatch.clients[clientId].allow_servers;
-  if (checked && !list.includes(serverId)) list.push(serverId);
-  if (!checked) pendingPatch.clients[clientId].allow_servers = list.filter(s => s !== serverId);
-  renderPending();
-  renderMatrix();
-}
-
-// --- Pending changes ---
-function renderPending() {
-  const panel = document.getElementById('pendingPanel');
-  const list = document.getElementById('changesList');
-  const hasChanges = Object.keys(pendingPatch).some(k => {
-    const v = pendingPatch[k];
-    return v && typeof v === 'object' && Object.keys(v).length > 0;
-  });
-  if (!hasChanges) {
-    panel.style.display = 'none';
-    return;
-  }
-  panel.style.display = '';
-  let html = '';
-  if (pendingPatch.clients) {
-    Object.entries(pendingPatch.clients).forEach(([cid, cfg]) => {
-      if (cfg === null) {
-        html += `<div class="removed">- Remove client: ${esc(cid)}</div>`;
-      } else if (!registryData.clients[cid]) {
-        html += `<div class="added">+ Add client: ${esc(cid)}</div>`;
-      } else {
-        const changes = Object.keys(cfg).join(', ');
-        html += `<div class="modified">~ Modify client ${esc(cid)}: ${changes}</div>`;
-      }
-    });
-  }
-  if (pendingPatch.servers) {
-    Object.entries(pendingPatch.servers).forEach(([sid, cfg]) => {
-      if (cfg === null) {
-        html += `<div class="removed">- Remove server: ${esc(sid)} (cascade: removed from all client allowlists)</div>`;
-      } else if (!registryData.servers[sid]) {
-        html += `<div class="added">+ Add server: ${esc(sid)}</div>`;
-      } else {
-        const changes = Object.keys(cfg).join(', ');
-        html += `<div class="modified">~ Modify server ${esc(sid)}: ${changes}</div>`;
-      }
-    });
-  }
-  list.innerHTML = html;
-  document.getElementById('errorList').innerHTML = '';
-}
-
-async function validateChanges() {
-  try {
-    const r = await fetch('/registry/validate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Lmcp-Management-Token': mgmtToken },
-      body: JSON.stringify({ patch: pendingPatch }),
-    });
-    const d = await r.json();
-    const el = document.getElementById('errorList');
-    if (d.valid) {
-      el.innerHTML = '<div style="color:#3fb950">Validation passed. ' +
-        (d.changes_summary ? summarizeChanges(d.changes_summary) : '') + '</div>';
-    } else {
-      el.innerHTML = (d.errors||[]).map(e => `<div>${esc(e)}</div>`).join('');
-    }
-  } catch(e) { console.error('validate failed', e); }
-}
-
-async function applyChanges() {
-  if (!confirm('Apply pending changes to registry.yaml?')) return;
-  try {
-    const r = await fetch('/registry/apply', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Lmcp-Management-Token': mgmtToken },
-      body: JSON.stringify({ patch: pendingPatch }),
-    });
-    const d = await r.json();
-    const el = document.getElementById('errorList');
-    if (d.applied) {
-      pendingPatch = {};
-      el.innerHTML = '<div style="color:#3fb950">Applied successfully.' +
-        (d.restart_required ? ' Restart required for some settings.' : '') + '</div>';
-      await checkManagement();
-    } else {
-      el.innerHTML = (d.errors||[]).map(e => `<div>${esc(e)}</div>`).join('') ||
-        `<div>${d.message || d.error || 'Apply failed.'}</div>`;
-    }
-  } catch(e) { console.error('apply failed', e); }
-}
-
-function discardChanges() {
-  pendingPatch = {};
-  renderPending();
-  renderMatrix();
-}
-
-function summarizeChanges(s) {
-  const parts = [];
-  if (s.clients_added?.length) parts.push('+' + s.clients_added.length + ' clients');
-  if (s.clients_modified?.length) parts.push('~' + s.clients_modified.length + ' clients');
-  if (s.clients_removed?.length) parts.push('-' + s.clients_removed.length + ' clients');
-  if (s.servers_added?.length) parts.push('+' + s.servers_added.length + ' servers');
-  if (s.servers_modified?.length) parts.push('~' + s.servers_modified.length + ' servers');
-  if (s.servers_removed?.length) parts.push('-' + s.servers_removed.length + ' servers');
-  return parts.length ? '(' + parts.join(', ') + ')' : '';
-}
-
-// --- SSE Events ---
-function connectSSE() {
-  if (eventSource) eventSource.close();
-  eventSource = new EventSource('/events');
-  eventSource.onmessage = (e) => addEvent(JSON.parse(e.data));
-  eventSource.addEventListener('client_auth', (e) => addEvent(JSON.parse(e.data)));
-  eventSource.addEventListener('server_auth', (e) => addEvent(JSON.parse(e.data)));
-  eventSource.addEventListener('rate_limited', (e) => addEvent(JSON.parse(e.data)));
-  eventSource.addEventListener('config_change', (e) => addEvent(JSON.parse(e.data)));
-  eventSource.addEventListener('tool_call', (e) => addEvent(JSON.parse(e.data)));
-  eventSource.addEventListener('tool_result', (e) => addEvent(JSON.parse(e.data)));
-  eventSource.addEventListener('server_error', (e) => addEvent(JSON.parse(e.data)));
-  eventSource.onerror = () => { setTimeout(connectSSE, 5000); };
-}
-
-function addEvent(data) {
-  const log = document.getElementById('eventsLog');
-  const type = data.event_type || 'unknown';
-  const p = data.payload || {};
-  const ts = (data.timestamp || '').split('T')[1]?.split('.')[0] || '';
-  const client = p.client_id || '';
-  const server = p.server_id || '';
-  const allowed = p.allowed;
-  const reason = p.reason || '';
-
-  // Filter
-  if (eventFilter && type !== eventFilter) return;
-
-  // Remove "waiting" message
-  const empty = log.querySelector('.empty-msg');
-  if (empty) empty.remove();
-
-  const isConfig = type === 'config_change';
-  const row = document.createElement('div');
-  row.className = 'row' + (isConfig ? ' config-row' : '');
-  row.innerHTML = `
-    <span class="ts">${esc(ts)}</span>
-    <span class="evt">${esc(type)}</span>
-    <span class="client">${esc(client)}${server ? '>'+esc(server) : ''}</span>
-    <span class="${allowed === true ? 'allowed-yes' : allowed === false ? 'allowed-no' : ''}">${allowed != null ? (allowed ? 'allowed' : 'denied') : ''}</span>
-    <span class="reason">${esc(reason)}</span>
-  `;
-  log.appendChild(row);
-
-  // Cap events
-  while (log.children.length > MAX_EVENTS) log.removeChild(log.firstChild);
-  log.scrollTop = log.scrollHeight;
-
-  // Refresh registry on config change
-  if (isConfig && allowed && mgmtMode) checkManagement();
-}
-
-function applyEventFilter() {
-  eventFilter = document.getElementById('eventFilter').value;
-}
-
-// --- Util ---
-function esc(s) {
-  if (!s) return '';
-  const d = document.createElement('div');
-  d.textContent = String(s);
-  return d.innerHTML.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
-}
-
-// --- Start ---
-init();
-</script>
+<script src="ui.js"></script>
 </body>
 </html>
