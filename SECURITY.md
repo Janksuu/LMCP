@@ -9,9 +9,15 @@ is the host operating system.
 ### What LMCP Protects Against
 
 - **Unauthorized tool access**: per-client tokens and server allowlists
+- **Per-tool policy enforcement** (v3.1.1+): `tool_policy` modes
+  (`allow_all` / `deny_all` / `allow_list`) filter `tools/list` results
+  and reject denied calls in `tools/call` with MCP error `-32011`
 - **Token enumeration**: rate-limited probe endpoints (10 rpm)
 - **Timing attacks**: constant-time token comparison (hmac.compare_digest)
 - **Audit tampering**: append-only JSONL log, never modified by the daemon
+- **Operator-view secret leakage** (v3.1.1+): `/registry/view` redacts
+  server `env` and `headers` values to `"set"` / `"empty"` indicators.
+  Keys remain visible; values do not appear in the response.
 - **XSS in management UI**: all user-controlled values escaped before rendering
 - **Config corruption**: atomic backup-then-write, write lock prevents races
 - **SSE resource exhaustion**: max 50 concurrent subscribers
@@ -43,7 +49,9 @@ is the host operating system.
 
 | Date | Scope | Findings | Fixes |
 |------|-------|----------|-------|
-| 2026-04-15 | Full v3 audit (6 phases) | 12 findings (1 critical post-auth, 3 high, 5 medium, 3 low) | All critical/high fixed in same release |
+| 2026-04-15 | Full v3 audit (6 phases) | 12 findings (1 critical post-auth, 3 high, 5 medium, 3 low) | All critical/high fixed in same release (v3.0.1) |
+| 2026-04-16 | Opus 4.7 follow-up audit | 7 additional findings (4 medium, 3 low, 1 defense-in-depth) | All addressed in v3.0.2 |
+| 2026-04-26 | External review | Tool policy not enforced in data path; `/registry/view` leaked `env` / `headers` values; README contradicted code; no CI | All addressed in v3.1.1: `authorize_tool` wired into `/mcp`, `env` / `headers` redacted in operator view, README corrected, GitHub Actions CI added |
 
 ### Findings Summary
 

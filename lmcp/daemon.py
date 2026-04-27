@@ -17,7 +17,7 @@ from .audit import AuditEvent, AuditLogger
 from .config import Registry, check_registry_permissions, check_remote_mode, load_registry, registry_to_json, validate_registry_file
 from .events import BusEvent, EventBus
 from .management import check_management_auth, build_registry_view, validate_patch, apply_patch
-from .policy import authenticate_client, authorize_server
+from .policy import authenticate_client, authorize_server, authorize_tool
 from .http_mcp import HttpMcpError, http_call_tool, http_tools_list
 from .stdio_mcp import (
     McpProtocolError,
@@ -627,9 +627,19 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                     _mcp_error(self, request_id, -32001, "unauthorized")
                     return
                 for server_id in client_cfg.allow_servers:
+                    server_cfg = daemon.registry.servers.get(server_id)
+                    if server_cfg is None:
+                        continue
                     for tool in _collect_tools_for_server(daemon, server_id):
                         tool_name = tool.get("name")
                         if not tool_name:
+                            continue
+                        # Filter by per-server tool policy.
+                        # deny_all blocks every tool; allow_list keeps only
+                        # listed tools; allow_all keeps everything except
+                        # deny_tools entries.
+                        decision = authorize_tool(server_cfg.tool_policy, tool_name)
+                        if not decision.allowed:
                             continue
                         tools.append(
                             {
@@ -654,6 +664,23 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                 server = daemon.registry.servers.get(server_id)
                 if not server:
                     _mcp_error(self, request_id, -32004, "unknown_server")
+                    return
+                # Enforce per-server tool policy. The same authorize_tool
+                # function used to filter tools/list rejects denied tools
+                # before we proxy the call to the upstream server.
+                tool_decision = authorize_tool(server.tool_policy, actual_tool)
+                if not tool_decision.allowed:
+                    daemon.audit.write(
+                        AuditEvent(
+                            event="tool_authz",
+                            client_id=client_id,
+                            server_id=server_id,
+                            tool_name=actual_tool,
+                            allowed=False,
+                            reason=tool_decision.reason,
+                        )
+                    )
+                    _mcp_error(self, request_id, -32011, f"tool_denied:{tool_decision.reason}")
                     return
                 try:
                     if server.transport == "http":

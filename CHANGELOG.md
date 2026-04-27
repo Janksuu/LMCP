@@ -2,6 +2,51 @@
 
 All notable changes to LMCP are documented in this file.
 
+## v3.1.1 - 2026-04-26
+
+External review identified a gap between LMCP's marketed two-rail
+access-control plane and what the data path actually enforced. This
+release closes that gap, fixes the documentation that contradicted
+the code, and adds CI so the test suite runs on every push.
+
+### Security
+- **Tool policy now enforced in the data path.** Previous releases defined
+  `tool_policy` (with modes `allow_all`, `deny_all`, `allow_list` plus
+  `allow_tools` and `deny_tools` lists) and validated it via JSON schema,
+  but the `/mcp` handler never consulted `policy.authorize_tool`. The
+  `tools/list` response now filters tools by per-server policy, and
+  `tools/call` returns MCP error `-32011 tool_denied` for tools that
+  policy rejects. Every authorization decision is audited as `tool_authz`.
+- **`/registry/view` redacts secrets in `env` and `headers`.** Previously
+  the operator view returned full values for these fields, which routinely
+  carry provider API keys and bearer tokens for downstream MCP servers.
+  Values are now reduced to `"set"` / `"empty"` indicators. Keys remain
+  visible so operators can see what is configured. Editing the actual
+  values requires direct YAML edit.
+
+### Added
+- `tests/test_tool_policy.py` (10 new tests) covering `authorize_tool`
+  decision logic for all four modes plus `tools/list` filtering behavior.
+- 2 new redaction tests in `tests/test_management.py` confirming server
+  `env` and `headers` values never appear in the `/registry/view` response.
+- `tool_authz` event type added to `EVENT_TYPES`. Tool-policy denials
+  publish through the audit log and SSE stream.
+- **GitHub Actions CI** at `.github/workflows/ci.yml` running pytest on
+  Linux and Windows for Python 3.10 / 3.11 / 3.12 / 3.13, plus a
+  `node --check` syntax pass on `ui.js`.
+- CI badge in README.
+
+### Fixed
+- README `Tool Policies` section referenced `tools` field; the schema
+  and code use `allow_tools`. Corrected and expanded with a working example.
+- README `Security` section now reflects v3.1.1 enforcement and redaction.
+- `docs/management_api.md` updated to describe `env` / `headers` redaction.
+
+### Tests
+- 65/65 passing (52 + 13 new).
+
+---
+
 ## v3.1.0 - 2026-04-19
 
 ### Changed

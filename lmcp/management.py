@@ -55,14 +55,20 @@ def build_registry_view(registry: Registry) -> dict[str, Any]:
 
     servers = {}
     for sid, server in sorted(registry.servers.items()):
+        # env and headers commonly carry secrets (provider API keys for
+        # downstream MCP servers, bearer tokens for HTTP transports).
+        # The operator view shows which keys are configured, not the values.
+        # Editing these fields requires direct YAML edit (UI is display-only).
+        env_view = {k: ("set" if v else "empty") for k, v in server.env.items()}
+        headers_view = {k: ("set" if v else "empty") for k, v in server.headers.items()}
         servers[sid] = {
             "transport": server.transport,
             "command": server.command,
             "args": list(server.args),
             "url": server.url,
-            "env": dict(server.env),
+            "env": env_view,
             "cwd": server.cwd,
-            "headers": dict(server.headers),
+            "headers": headers_view,
             "stdio_mode": server.stdio_mode,
             "tool_policy": {
                 "mode": server.tool_policy.mode,

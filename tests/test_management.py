@@ -128,6 +128,60 @@ def test_view_includes_server_fields() -> None:
         assert "timeouts" in server
 
 
+def test_view_redacts_server_env_values() -> None:
+    """Regression for April 2026 review: build_registry_view must not return
+    raw values for server.env -- those commonly hold API keys for downstream
+    MCP servers (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.). Keys are visible
+    so the operator knows what is configured; values are reduced to
+    'set' / 'empty' indicators."""
+    with tempfile.TemporaryDirectory() as td:
+        reg = _make_registry(Path(td))
+        # Add a server whose env carries a secret-looking value
+        reg.servers["secret-server"] = ServerConfig(
+            server_id="secret-server",
+            transport="stdio",
+            command="python",
+            args=["-m", "secret_server"],
+            env={"OPENAI_API_KEY": "sk-very-secret-do-not-leak-1234567890", "EMPTY_VAR": ""},
+            tool_policy=ToolPolicy(),
+            timeouts=ServerTimeouts(),
+        )
+        view = build_registry_view(reg)
+        env_view = view["servers"]["secret-server"]["env"]
+        # Keys preserved (operator needs to know what is configured)
+        assert "OPENAI_API_KEY" in env_view
+        assert "EMPTY_VAR" in env_view
+        # Values redacted -- the secret must not appear in the response
+        assert env_view["OPENAI_API_KEY"] == "set"
+        assert env_view["EMPTY_VAR"] == "empty"
+        # Defense-in-depth: serialize the whole view and grep for the secret
+        import json as _json
+        rendered = _json.dumps(view)
+        assert "sk-very-secret-do-not-leak-1234567890" not in rendered
+
+
+def test_view_redacts_server_headers_values() -> None:
+    """Regression: server.headers values are redacted same as env. HTTP MCP
+    transports commonly carry bearer tokens here."""
+    with tempfile.TemporaryDirectory() as td:
+        reg = _make_registry(Path(td))
+        reg.servers["http-server"] = ServerConfig(
+            server_id="http-server",
+            transport="http",
+            url="http://127.0.0.1:9000/mcp",
+            headers={"Authorization": "Bearer super-secret-bearer-token-9876543210"},
+            tool_policy=ToolPolicy(),
+            timeouts=ServerTimeouts(),
+        )
+        view = build_registry_view(reg)
+        headers_view = view["servers"]["http-server"]["headers"]
+        assert "Authorization" in headers_view
+        assert headers_view["Authorization"] == "set"
+        import json as _json
+        rendered = _json.dumps(view)
+        assert "super-secret-bearer-token-9876543210" not in rendered
+
+
 def test_view_excludes_management_token() -> None:
     with tempfile.TemporaryDirectory() as td:
         reg = _make_registry(Path(td))

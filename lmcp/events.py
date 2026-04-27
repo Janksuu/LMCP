@@ -17,6 +17,7 @@ EVENT_VERSION = 1
 EVENT_TYPES = frozenset({
     "client_auth",
     "server_auth",
+    "tool_authz",
     "rate_limited",
     "tool_call",
     "tool_result",

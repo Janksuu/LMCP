@@ -92,10 +92,13 @@ When management is disabled, `/ui` remains accessible in read-only mode
 
 Returns the current registry as an authenticated operator view. Client
 tokens are replaced with `token_status` (empty / placeholder / set).
-Server configs include all fields (including `args`, `env`, `cwd`,
-`headers`, `stdio_mode`) so the operator has full visibility and patch
-mode can preserve them. Note: `env` and `headers` may contain secrets --
-this endpoint is management-authenticated, not public.
+Server configs include `args`, `cwd`, `stdio_mode`, `tool_policy`, and
+`timeouts` in full. `env` and `headers` keys are returned, but their
+**values are redacted** to `"set"` or `"empty"` because these fields
+commonly hold provider API keys and bearer tokens. The operator can
+see *which* env vars and headers are configured, but not the secrets
+themselves -- editing values requires direct YAML edit (the UI is
+display-only for these fields by design).
 
 **Auth:** management token required
 
@@ -124,7 +127,7 @@ this endpoint is management-authenticated, not public.
         "transport": "stdio",
         "command": "npx",
         "args": ["-y", "ollama-mcp-server"],
-        "env": { "OLLAMA_HOST": "http://127.0.0.1:11434" },
+        "env": { "OLLAMA_HOST": "set" },
         "cwd": null,
         "headers": {},
         "stdio_mode": "newline",

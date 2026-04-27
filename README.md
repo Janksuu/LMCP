@@ -1,5 +1,7 @@
 # LMCP
 
+[![CI](https://github.com/Janksuu/LMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/Janksuu/LMCP/actions/workflows/ci.yml)
+
 **Local MCP Control Plane** — A governance layer for Model Context Protocol servers.
 
 ```
@@ -225,13 +227,31 @@ clients:
 
 ### Tool Policies
 
-Per-server control over which tools clients can call:
+Per-server control over which tools clients can call. Enforced on both
+`tools/list` (returned set is filtered) and `tools/call` (denied tools
+return MCP error -32011 `tool_denied`).
 
 | Mode | Behavior |
 |------|----------|
-| `allow_all` | All tools accessible |
+| `allow_all` | All tools accessible, except those listed in `deny_tools` |
 | `deny_all` | No tools accessible (server registered but gated) |
-| `allow_list` | Only tools listed in `tools` are accessible |
+| `allow_list` | Only tools listed in `allow_tools` are accessible |
+
+Example:
+
+```yaml
+servers:
+  github-mcp:
+    transport: stdio
+    command: npx
+    args: ["-y", "github-mcp-server"]
+    tool_policy:
+      mode: allow_list
+      allow_tools:
+        - search_repositories
+        - get_file_contents
+      deny_tools: []
+```
 
 ---
 
@@ -408,7 +428,7 @@ In VS Code Agent mode, all servers in your LMCP registry become available throug
 ## Security
 
 LMCP is designed so the secure behavior is the default. The codebase has been
-through a formal security audit (April 2026) with follow-up hardening in v3.0.2.
+through formal review (April 2026) with follow-up hardening in v3.0.2 and v3.1.1.
 
 ### Protections
 
@@ -416,14 +436,15 @@ through a formal security audit (April 2026) with follow-up hardening in v3.0.2.
 - **Token authentication** — Every client requires a valid token; no anonymous access
 - **Constant-time token comparison** — `hmac.compare_digest` prevents timing attacks
 - **Server allowlists** — Clients access only servers they are explicitly granted
-- **Tool policies** — Per-server control over which tools are reachable
-- **Audit logging** — Every authentication and authorization decision is recorded
+- **Tool policies enforced** — Per-server `tool_policy` filters `tools/list` and rejects denied calls in `tools/call` (MCP error `-32011 tool_denied`)
+- **Audit logging** — Every authentication, authorization, and tool-policy decision is recorded
 - **Probe rate limiting** — `/auth-check` and `/server-check` throttled at 10 rpm to prevent brute force
 - **Request size limits** — POST bodies capped at 1 MB
 - **SSE subscriber cap** — Max 50 concurrent `/events` connections
 - **XSS prevention** — All user-controlled values escaped; no inline JS handlers
 - **Management auth** — Registry editing requires a separate management token (header-only, disabled by default)
 - **Minimal public disclosure** — Public endpoints do not expose client IDs, server commands, or file paths
+- **`/registry/view` redacts secrets** — Client tokens shown as `token_status`; server `env` and `headers` values shown as `set` / `empty` (keys visible, values not)
 
 ### What LMCP Does NOT Do
 
