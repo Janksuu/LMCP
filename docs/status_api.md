@@ -10,7 +10,7 @@ The payload includes a `status_version` integer. When required fields are added,
 or their types change, `status_version` is incremented. Consumers should check this field
 and handle unknown versions gracefully.
 
-Current version: **2**
+Current version: **3**
 
 ## Endpoint
 
@@ -34,8 +34,6 @@ Returns `400 Bad Request` if `limit` is not a valid positive integer.
 | `port` | `int` | Bound port number. |
 | `loopback_only` | `bool` | Whether the daemon is restricted to loopback. |
 | `uptime_s` | `float\|null` | Daemon uptime in seconds. `null` when queried via CLI (no running daemon). |
-| `registry_path` | `string` | Absolute path to the loaded registry file. |
-| `audit_log_path` | `string` | Absolute path to the audit log file. |
 | `clients` | `array` | List of client objects (see below). |
 | `servers` | `array` | List of server objects (see below). |
 | `recent_audit_entries` | `array` | Recent audit log entries (newest last). |
@@ -59,7 +57,6 @@ Each entry in `servers`:
 |-------|------|-------------|
 | `server_id` | `string` | Unique server identifier. |
 | `transport` | `string` | `"stdio"` or `"http"`. |
-| `target` | `string` | Command string (stdio) or URL (http). |
 | `available_hint` | `bool` | Whether the server binary/URL appears reachable. |
 | `tool_policy_mode` | `string` | `"allow_all"`, `"deny_all"`, or `"allow_list"`. |
 | `timeouts` | `object` | Resolved timeout configuration (see below). |
@@ -97,14 +94,12 @@ Malformed log lines appear as `{"raw": "...", "error": "invalid_json"}`.
 
 ```json
 {
-  "status_version": 2,
+  "status_version": 3,
   "service": "lmcp-v3",
   "host": "127.0.0.1",
   "port": 7345,
   "loopback_only": true,
   "uptime_s": 3421.7,
-  "registry_path": "/home/user/lmcp/config/registry.yaml",
-  "audit_log_path": "/home/user/lmcp/logs/audit.log",
   "clients": [
     {
       "client_id": "vscode",
@@ -117,7 +112,6 @@ Malformed log lines appear as `{"raw": "...", "error": "invalid_json"}`.
     {
       "server_id": "ollama-mcp",
       "transport": "stdio",
-      "target": "npx -y ollama-mcp-server",
       "available_hint": true,
       "tool_policy_mode": "allow_all",
       "timeouts": {
