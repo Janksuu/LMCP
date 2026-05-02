@@ -71,7 +71,16 @@ async function apiGet(path, needsMgmt) {
     try { err.body = await r.json(); } catch (_) {}
     throw err;
   }
-  return await r.json();
+  const body = await r.json();
+  // The daemon wraps GET responses as { ok: true, <key>: <payload> }.
+  // Unwrap here so callers always see the inner payload (e.g. /status -> status,
+  // /registry/view -> registry). Endpoints without a known wrapper key are
+  // returned as-is.
+  if (body && typeof body === 'object' && body.ok === true) {
+    if (path === '/status' && 'status' in body) return body.status;
+    if (path === '/registry/view' && 'registry' in body) return body.registry;
+  }
+  return body;
 }
 
 async function apiPost(path, body) {
