@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from . import __version__
 from .audit import AuditEvent, AuditLogger
 from .config import Registry, check_registry_permissions, check_remote_mode, load_registry, registry_to_json, validate_registry_file
 from .events import BusEvent, EventBus
@@ -613,7 +614,7 @@ def _make_handler(daemon: LmcpDaemon) -> type[BaseHTTPRequestHandler]:
                 result = {
                     "protocolVersion": "2025-06-18",
                     "capabilities": {"tools": {"listChanged": True}},
-                    "serverInfo": {"name": "lmcp", "version": "0.1.0"},
+                    "serverInfo": {"name": "lmcp", "version": __version__},
                 }
                 _json_response(self, 200, {"jsonrpc": "2.0", "id": request_id, "result": result})
                 return

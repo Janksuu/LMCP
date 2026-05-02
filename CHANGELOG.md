@@ -41,6 +41,40 @@ the code, and adds CI so the test suite runs on every push.
   and code use `allow_tools`. Corrected and expanded with a working example.
 - README `Security` section now reflects v3.1.1 enforcement and redaction.
 - `docs/management_api.md` updated to describe `env` / `headers` redaction.
+- **UI envelope-unwrap bug.** The daemon wraps GET responses as
+  `{ ok: true, status|registry: <payload> }`, but `apiGet()` was
+  assigning the wrapper directly to `state.status` / `state.registry`.
+  The renderers then read `.clients` / `.servers` / `.status_version`
+  off the wrapper and got nothing, so panels rendered empty even when
+  the daemon was responding correctly. `apiGet()` now unwraps known
+  envelopes inline.
+
+### Changed
+- **Single source of truth for version.** `lmcp/__init__.py` now exports
+  `__version__ = "3.1.1"`. Both `serverInfo.version` (northbound `/mcp`
+  initialize response) and `clientInfo.version` (southbound MCP client
+  in `stdio_mcp.py`) read from this constant. Previously hardcoded as
+  `"0.1.0"` in three places.
+- **Stale identifier cleanup.** Southbound `clientInfo.name` was
+  `"lmcp-v0"`; corrected to `"lmcp"`.
+
+### Documentation
+- `docs/management_api.md` now documents the `/registry/apply` atomicity
+  model. Reloadable fields (`clients`, `servers`, `rate_limit_rpm`,
+  `management_token`) are swapped sequentially under the GIL; individual
+  assignments are atomic, the set is not. Microsecond-scale window where
+  a request thread can briefly observe a partially-updated state.
+  Trade-off and operator implications spelled out.
+- `ARCHITECTURE.md` adds an MCP Method Coverage section documenting
+  which MCP methods LMCP forwards (`initialize`, `tools/list`,
+  `tools/call`) and which return `method_not_found` (resources, prompts,
+  sampling, roots, logging, notifications). Notes that this is a
+  planned expansion, not an architectural exclusion.
+- `ARCHITECTURE.md` documents that the northbound and southbound
+  `protocolVersion` values intentionally diverge: north pins
+  `2025-06-18` for stable client contracts, south uses
+  `2025-11-25` / `LATEST` for upstream servers. Per-server version
+  reflection is planned.
 
 ### Tests
 - 65/65 passing (52 + 13 new).

@@ -185,6 +185,46 @@ Client → POST /mcp?client_id=X&token=Y
 
 ---
 
+## MCP Method Coverage
+
+LMCP's northbound `/mcp` endpoint currently proxies a deliberate subset
+of the MCP protocol:
+
+| Method | Supported | Notes |
+|--------|-----------|-------|
+| `initialize` | Yes | LMCP advertises a fixed `protocolVersion` (see below) |
+| `tools/list` | Yes | Aggregated across allowed servers, filtered by `tool_policy` |
+| `tools/call` | Yes | Authorized via `authorize_server` + `authorize_tool` |
+| `resources/list`, `resources/read` | **No** | Returns `method_not_found` |
+| `prompts/list`, `prompts/get` | **No** | Returns `method_not_found` |
+| `sampling/createMessage` | **No** | Returns `method_not_found` |
+| `roots/list` | **No** | Returns `method_not_found` |
+| `logging/setLevel` | **No** | Returns `method_not_found` |
+| Notifications | **No** | Not forwarded |
+
+The tool surface is the most security-sensitive part of MCP and the
+core focus of LMCP's governance model. Forwarding the rest of the
+protocol is a planned expansion, not an architectural exclusion.
+
+### Protocol version
+
+LMCP terminates MCP on both sides:
+
+- **Northbound** (`/mcp`): the `initialize` response advertises
+  `protocolVersion: "2025-06-18"` to connected clients.
+- **Southbound** (stdio and HTTP MCP clients in `stdio_mcp.py` /
+  `http_mcp.py`): LMCP sends `protocolVersion: "2025-11-25"` (or
+  `mcp.types.LATEST_PROTOCOL_VERSION` if the optional `mcp` package
+  is importable) to upstream servers.
+
+These versions intentionally diverge: LMCP pins a stable contract for
+its clients while keeping pace with the latest MCP spec for upstream
+servers. A client negotiating against `/mcp` is negotiating with LMCP,
+not with the upstream tool source. Reflecting upstream version per
+server is planned but adds session complexity LMCP has not yet taken on.
+
+---
+
 ## Non-Goals
 
 These are out of scope by design, not by omission:

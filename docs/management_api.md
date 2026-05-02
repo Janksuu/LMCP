@@ -402,6 +402,34 @@ Active connections and in-progress requests are not interrupted.
 If a non-reloadable setting is changed, the apply response includes a
 warning: `"restart_required": true`.
 
+### Atomicity model
+
+The reloadable fields (`clients`, `servers`, `rate_limit_rpm`,
+`management_token`) are swapped onto the in-memory `Registry` in
+sequence under CPython's GIL. Each individual attribute assignment is
+atomic, but the **set of assignments is not collectively atomic**: a
+request thread that interleaves between the swaps can briefly observe
+a partially-updated state -- for example, new `clients` paired with
+old `servers`. The window is on the order of microseconds.
+
+Practical implications:
+- The on-disk file is written before any in-memory swap, so concurrent
+  readers either see fully old or fully new state on disk.
+- Authentication and authorization decisions made during the swap
+  window are still consistent within a single request (each request
+  resolves its own client and server lookups in order).
+- Rate-limit buckets are cleared in a separate locked section after
+  the registry swap, so a request landing during the swap may briefly
+  see new client config but the old bucket; the bucket is recreated
+  on the next request from that client.
+
+This is a deliberate trade-off. Holding a lock across all reloadable
+state for the duration of every request would serialize the daemon.
+The brief inconsistency window is acceptable for a single-operator
+local control plane. If stricter atomicity is required, restart the
+daemon (which loads the new config in a fresh process) instead of
+relying on hot reload.
+
 ---
 
 ## Error Codes

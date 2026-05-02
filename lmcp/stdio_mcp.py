@@ -9,6 +9,7 @@ import time
 from queue import Queue, Empty
 from typing import Any
 
+from . import __version__
 from .config import ServerConfig
 
 
@@ -215,7 +216,7 @@ def initialize_and_list_tools(
         protocol_version = "2025-11-25"
     initialize_params = {
         "protocolVersion": protocol_version,
-        "clientInfo": {"name": "lmcp-v0", "version": "0.1.0"},
+        "clientInfo": {"name": "lmcp", "version": __version__},
         "capabilities": {},
     }
     init_response = _request_with_timeout_retries(
@@ -257,7 +258,7 @@ def initialize_and_call_tool(
 
     initialize_params = {
         "protocolVersion": protocol_version,
-        "clientInfo": {"name": "lmcp-v0", "version": "0.1.0"},
+        "clientInfo": {"name": "lmcp", "version": __version__},
         "capabilities": {},
     }
     init_response = _request_with_timeout_retries(
